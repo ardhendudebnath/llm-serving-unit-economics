@@ -185,6 +185,24 @@ class LoadPoint:
             return 0.0
         return sum(r.tokens_out for r in self.completed) / self.duration_s
 
+    @property
+    def mean_tokens_in(self) -> float:
+        """Mean prompt tokens per completed request, from the server's usage.
+
+        Recorded because the cost model needs it: the API side of the crossover
+        is priced per token, and both sides have to be charged for the same
+        work or the comparison is meaningless. Not derivable after the fact
+        from anything else in the summary, so it is captured the first time --
+        re-running a sweep to recover it would be money set on fire.
+        """
+        done = self.completed
+        return sum(r.tokens_in for r in done) / len(done) if done else 0.0
+
+    @property
+    def mean_tokens_out(self) -> float:
+        done = self.completed
+        return sum(r.tokens_out for r in done) / len(done) if done else 0.0
+
     def total_latency(self) -> Distribution | None:
         vals = [r.total_s for r in self.completed]
         return Distribution.of(vals) if vals else None
@@ -215,6 +233,8 @@ class LoadPoint:
             "completed": len(self.completed),
             "error_rate": round(self.error_rate, 4),
             "output_tokens_per_s": round(self.output_tokens_per_s, 2),
+            "mean_tokens_in": round(self.mean_tokens_in, 1),
+            "mean_tokens_out": round(self.mean_tokens_out, 1),
             "total_latency_s": total.as_row() if total else None,
             "ttft_s": ttft.as_row() if ttft else None,
             "worst_client_lag_s": round(self.worst_client_lag_s(), 4),

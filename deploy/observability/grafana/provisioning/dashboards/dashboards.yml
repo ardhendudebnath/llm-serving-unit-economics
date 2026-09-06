@@ -1,0 +1,16 @@
+# Dashboards as code. The JSON in this repo is the source of truth, so an edit
+# made in the Grafana UI is discarded on restart rather than becoming an
+# untracked change nobody can review.
+apiVersion: 1
+
+providers:
+  - name: llm-serving
+    orgId: 1
+    folder: LLM serving
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

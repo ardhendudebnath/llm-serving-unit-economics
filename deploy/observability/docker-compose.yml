@@ -1,0 +1,56 @@
+# The observability stack, runnable on a laptop with no GPU.
+#
+#   docker compose -f deploy/observability/docker-compose.yml up
+#
+# Prometheus on :9090, Grafana on :3000 with the dashboard already provisioned.
+# Neither needs the model server to exist -- panels will simply be empty until
+# something is scraped, which is the honest state and is what the
+# GpuMetricsMissing alert exists to say out loud.
+#
+# This is the CPU-side half of the plan's "develop on CPU" rule: dashboards and
+# alert rules can be built, provisioned and eyeballed here, so the only thing
+# GPU time is spent on is the measurement itself.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Enough to hold a full sweep plus the week of history the prompt-length
+      # drift rule compares against.
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # Lets Prometheus scrape a vLLM (or the mock server) running on the host
+      # rather than in this compose network.
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      # Local-only stack on a laptop. Not a posture for anything reachable.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana-dashboard.json:/var/lib/grafana/dashboards/serving.json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

@@ -206,8 +206,26 @@ pending.
 ```bash
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
-python -m pip install -e '.[dev,load]'
-python -m pytest tests -q          # 62 tests, no GPU, no network
+python -m pip install -e '.[dev,load,charts]'
+python -m pytest tests -q                 # 149 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 135 of them, in 3 seconds
+```
+
+**The whole toolchain runs without a GPU.** `tests/mock_server.py` speaks vLLM's
+wire format — same SSE framing, same role-only first delta, same trailing usage
+chunk — with latency that is specified rather than measured. Start it and drive
+a real sweep against it:
+
+```bash
+python -m tests.mock_server --port 8099 --ttft-ms 120
+python -m bench.sweep --all-profiles --base-url http://localhost:8099 --slo 2.0
+python -m bench.report.build
+```
+
+The dashboards run on CPU too:
+
+```bash
+docker compose -f deploy/observability/docker-compose.yml up
 ```
 
 Rebuild the workload corpora from Project 01 (only needed if its data changes):
@@ -284,14 +302,18 @@ Written before the measurements, so none of it is retrofitted.
 ## Layout
 
 ```
-bench/       config (dated prices) · metrics (percentiles, knee) · cost
-             (step function, crossover) · workloads · loadgen (open-loop,
-             Poisson) · sweep (checkpointing) · build_corpus
+bench/       config (dated prices, amortisation) · metrics (percentiles,
+             knee) · cost (step function, crossover) · workloads · loadgen
+             (open-loop, Poisson) · sweep (checkpointing) · gpu (VRAM,
+             throttle detection) · build_corpus · report/ (charts, build)
 gate/        compare (noise-floor tolerance) · record · guard
 serving/     Dockerfile · entrypoint.sh
-deploy/      k8s/ (deployment, service, hpa, configmap) · observability/
+deploy/      k8s/ (deployment, service, hpa, configmap)
+             observability/ (prometheus.yml, rules.yml, grafana dashboard,
+             docker-compose for the CPU-side stack)
+tests/       mock_server.py — a fake vLLM, so the toolchain runs with no GPU
 data/        workloads/ — the three replayable corpora
-docs/        decision.md · cost-log.md
+docs/        decision.md · cost-log.md · charts/
 results/     sweeps/ · eval/ — committed evidence
 ```
 
