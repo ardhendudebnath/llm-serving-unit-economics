@@ -35,8 +35,21 @@ jobs:
           print('core and gate are dependency-free')
           "
 
+      # Fast tests first, so a broken cost model fails in seconds rather than
+      # after a minute of end-to-end HTTP.
       - name: Unit tests
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q -m "not e2e"
+
+      - name: Install the load generator's client
+        run: python -m pip install "httpx>=0.27"
+
+      # Drives the real client against a mock vLLM over real HTTP. Slow (~70s)
+      # and worth every second: this is the only thing that checks the
+      # instrument every published latency number comes from. It catches, among
+      # others, counting vLLM's role-only first delta as the first token, and a
+      # generator that has quietly become closed-loop.
+      - name: End-to-end load generator tests
+        run: python -m pytest tests -q -m "e2e"
 
       # The corpora are committed, so this checks they are present and still
       # the three distinct shapes the sweep assumes -- not that they can be
