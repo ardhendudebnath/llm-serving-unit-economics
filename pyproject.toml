@@ -41,6 +41,12 @@ include = ["bench*", "gate*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# The end-to-end tests drive real HTTP against a mock server with real sleeps,
+# so they take about a minute. They are the most valuable tests here and CI
+# runs all of them; `-m "not e2e"` is for the fast local loop.
+markers = [
+    "e2e: drives the load generator over real HTTP (slow)",
+]
 
 [tool.ruff]
 line-length = 100
