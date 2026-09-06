@@ -258,10 +258,26 @@ Written before the measurements, so none of it is retrofitted.
 - **The quantisation ladder needs pre-quantised checkpoints.** int8 and int4
   are not runtime flags; if no suitable checkpoint exists for the chosen model,
   that rung is missing rather than faked.
-- **Free-tier GPU hours constrain what can be served.** An 8B model at fp16
-  needs ~16 GB for weights alone, which does not fit a free 16 GB T4 with room
-  for a KV cache. The model choice is bounded by that, and the README will say
-  which GPU every number came from.
+- **12 GB of VRAM bounds the model.** Measurements run on an RTX 5070 Ti
+  Laptop GPU — 12,227 MiB, driver 595.79, compute capability 12.0, read from
+  `nvidia-smi` on 2026-09-07 rather than inferred from the model name. An 8B
+  model needs ~16 GB of fp16 weights before any KV cache, so it does not fit;
+  the fp16 rung is the baseline every quality delta is measured against, so the
+  model is sized to keep it rather than starting the ladder at int8.
+- **It is a laptop GPU, and laptop GPUs throttle.** Under sustained load a
+  laptop card holds boost clocks briefly and then drops, so a 120-second run at
+  a high arrival rate can end up measuring the cooling system. `bench/gpu.py`
+  samples clocks, temperature and NVML's throttle-reason bits for exactly the
+  span of each load point and flags any point where throttling was active;
+  a flagged point's throughput is reported as a **floor**, not as the card's
+  sustained rate.
+- **This card cannot be rented, which is a real problem for the cost curve.**
+  No cloud offers a laptop 5070 Ti, so there is no provider rate to read.
+  Pairing locally-measured throughput with some other card's hourly price would
+  describe a machine that does not exist, so the honest route is
+  `amortised_usd_per_hour()`: purchase price over expected serving hours, plus
+  measured power draw at a stated tariff. Every input is printed beside the
+  result, and `duty_cycle` is the one that moves it most.
 
 ---
 
