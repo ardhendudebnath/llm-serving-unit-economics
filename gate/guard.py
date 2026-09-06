@@ -41,9 +41,20 @@ RESULTS_GLOB = "results/eval/*.json"
 BASELINE_PATH = "gate/baseline.json"
 
 
+def _normalise(path: str) -> str:
+    """Strip the things that make a path silently fail to match.
+
+    A BOM on the first line is the dangerous one: it renders invisibly, and it
+    would make this guard report "no serving change" for a pull request that
+    changes the precision -- failing open, which is the one direction a gate
+    must never fail. Backslashes because git on Windows reports them.
+    """
+    return path.replace("﻿", "").strip().replace("\\", "/")
+
+
 def classify(changed: list[str]) -> tuple[list[str], bool, bool]:
     """Return (reasons a run is needed, a run was attached, baseline was edited)."""
-    normalised = [c.strip().replace("\\", "/") for c in changed if c.strip()]
+    normalised = [n for c in changed if (n := _normalise(c))]
 
     reasons = [
         f"`{path}` — {why}"
@@ -61,7 +72,21 @@ def main() -> int:
                     help="file listing changed paths, one per line")
     args = ap.parse_args()
 
-    changed = args.changed.read_text(encoding="utf-8").splitlines()
+    # utf-8-sig so a BOM is stripped by the decoder as well as by _normalise.
+    changed = args.changed.read_text(encoding="utf-8-sig").splitlines()
+
+    # An empty list is not "nothing changed" -- a pull request always changes
+    # something. It means the diff failed, and treating that as a pass would
+    # disable the gate exactly when CI is misconfigured.
+    if not [c for c in changed if c.strip()]:
+        print(
+            f"\n  BLOCKED: {args.changed} lists no changed files.\n\n"
+            "  A pull request always changes something, so this means the diff\n"
+            "  did not run -- most likely a shallow checkout. The gate refuses\n"
+            "  to pass rather than reporting nothing to do.\n"
+        )
+        return 1
+
     reasons, attached, baseline_edited = classify(changed)
 
     if baseline_edited:
