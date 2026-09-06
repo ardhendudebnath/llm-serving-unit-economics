@@ -1,0 +1,218 @@
+# Recording and alerting rules for the served model.
+#
+# Every threshold below is derived from something measured, and the derivation
+# is written next to it. A rule file full of round numbers is a rule file
+# nobody tuned, and it will either page constantly or never fire.
+#
+# Metric names are vLLM's own (the `vllm:` prefix) plus DCGM's for the GPU
+# itself. vLLM cannot report GPU utilisation -- it does not know -- so the
+# number that decides whether the cost figures are honest comes from
+# dcgm-exporter, and its absence is itself an alert.
+
+groups:
+  # ---------------------------------------------------------------- cost ---
+  - name: cost
+    interval: 30s
+    rules:
+      # The GPU hourly rate, as a series, so the cost panels are arithmetic
+      # over metrics rather than numbers typed into a dashboard. Set this from
+      # bench/config.py -- the two must agree, and a mismatch means the
+      # dashboard and the published curves disagree about the same deployment.
+      #
+      # It is a market rate, not what was actually paid: these measurements ran
+      # on free-tier hours, and a dashboard reporting zero would be useless to
+      # anyone deciding whether to self-host.
+      - record: gpu:hourly_rate_usd
+        expr: vector(0)
+        labels:
+          note: "unset -- read a provider rate and date it before trusting cost panels"
+
+      - record: serving:requests_per_second:rate5m
+        expr: sum(rate(vllm:request_success_total[5m]))
+
+      # Running cost per hour: simply the rate, since the GPU bills whether or
+      # not it is busy. That flatness is the entire economic story.
+      - record: serving:cost_per_hour_usd
+        expr: gpu:hourly_rate_usd * count(count by (gpu) (DCGM_FI_DEV_GPU_UTIL))
+
+      # Cost per 1000 requests, live. Diverges sharply from the published
+      # figure whenever utilisation is low, which is the point of showing it.
+      - record: serving:cost_per_1000_requests_usd
+        expr: |
+          serving:cost_per_hour_usd
+            / clamp_min(serving:requests_per_second:rate5m * 3600, 1)
+            * 1000
+
+      - record: serving:latency_p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m]))
+          )
+
+      - record: serving:ttft_p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m]))
+          )
+
+  # -------------------------------------------------------------- serving ---
+  - name: serving-slo
+    rules:
+      # p95 over the SLO for five minutes.
+      #
+      # Threshold is the SLO the cost curves were computed against, so this
+      # alert and the crossover chart describe the same deployment. Change one
+      # and the other stops being true.
+      #
+      # Five minutes, not one: p95 over a 5m window is already smoothed, and
+      # firing on a single scrape would page for one slow burst that
+      # continuous batching absorbed on its own.
+      - alert: LatencyP95OverSLO
+        expr: serving:latency_p95_seconds > 5
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "p95 latency {{ $value | humanizeDuration }} is over the 5s SLO"
+          description: >-
+            Sustained for 5 minutes. Check queue depth first: if
+            vllm:num_requests_waiting is climbing this is saturation and the
+            deployment is past its measured knee. If the queue is empty, it is
+            not load -- look at prompt length drift instead.
+
+      # Error rate above 1 %.
+      #
+      # 1 % because the load sweeps treat a point with >1 % errors as failing
+      # regardless of latency (see bench.metrics.find_knee): a server meeting
+      # its latency target by shedding requests has not met its target. The
+      # alert and the benchmark therefore use one definition of "working".
+      - alert: ErrorRateAboveOnePercent
+        expr: |
+          sum(rate(vllm:request_failure_total[5m]))
+            / clamp_min(sum(rate(vllm:request_success_total[5m]))
+                        + sum(rate(vllm:request_failure_total[5m])), 1)
+          > 0.01
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Error rate {{ $value | humanizePercentage }} over 1%"
+
+      # KV cache nearly full. Leading indicator, not a failure: once the cache
+      # saturates vLLM starts preempting sequences, which shows up as a
+      # latency tail long before it shows up as an error.
+      - alert: KVCacheNearlyExhausted
+        expr: vllm:gpu_cache_usage_perc > 0.95
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "KV cache at {{ $value | humanizePercentage }} -- preemption likely"
+          description: >-
+            At long context the cache, not the weights, bounds concurrency.
+            Either MAX_NUM_SEQS is too high for MAX_MODEL_LEN, or the traffic
+            has got longer -- check the prompt-length drift alert.
+
+  # ----------------------------------------------------------------- cost ---
+  - name: cost-alerts
+    rules:
+      # The cost alert. An idle GPU is a bill with nothing to show for it, and
+      # it also makes every per-request cost figure meaningless -- which is why
+      # this one matters as much as the latency alerts.
+      #
+      # 20 % for 30 minutes: below the utilisation at which self-hosting can
+      # beat the API at all (per the crossover model), sustained long enough
+      # that a quiet half-hour does not page. This is a ticket, not a page --
+      # nothing is broken, money is just being wasted.
+      - alert: GpuUnderutilisedCostWaste
+        expr: avg(DCGM_FI_DEV_GPU_UTIL) < 20
+        for: 30m
+        labels:
+          severity: ticket
+          kind: cost
+        annotations:
+          summary: "GPU at {{ $value }}% for 30 minutes -- paying for idle silicon"
+          description: >-
+            At this utilisation the per-request cost is dominated by idle time
+            and the API is almost certainly cheaper. Either consolidate onto
+            fewer replicas or accept that this workload is below the self-host
+            crossover.
+
+      # Without DCGM there is no utilisation figure, and without a utilisation
+      # figure no cost number here can be trusted. Firing rather than showing
+      # a blank panel.
+      - alert: GpuMetricsMissing
+        expr: absent(DCGM_FI_DEV_GPU_UTIL)
+        for: 10m
+        labels:
+          severity: ticket
+          kind: cost
+        annotations:
+          summary: "No GPU metrics -- every cost panel is currently unverifiable"
+
+      # The HPA cannot scale on a metric prometheus-adapter is not serving,
+      # and it fails silently by reporting <unknown>. See deploy/k8s/hpa.yaml.
+      - alert: AutoscalerMetricUnavailable
+        expr: absent(vllm:num_requests_waiting)
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Queue-depth metric missing -- the HPA is not autoscaling"
+
+  # ---------------------------------------------------------------- drift ---
+  - name: input-drift
+    rules:
+      # Prompt length is the input-distribution statistic that actually costs
+      # money here: prefill is quadratic-ish in prompt length and linear in
+      # KV cache footprint, so traffic getting longer degrades latency and
+      # capacity together, with no code change and no error.
+      #
+      # Compared against the same hour a week earlier rather than an absolute
+      # bound, so a weekday/weekend shape does not fire. 1.5x is chosen because
+      # the measured gap between the `short` and `long_in` profiles is over
+      # 10x -- a 50 % move is well outside normal variation within a profile
+      # but far inside the difference between profiles, so this catches a
+      # traffic mix change rather than noise.
+      - alert: PromptLengthDistributionShifted
+        expr: |
+          (
+            histogram_quantile(0.5, sum by (le) (rate(vllm:request_prompt_tokens_bucket[1h])))
+            /
+            clamp_min(
+              histogram_quantile(0.5, sum by (le) (rate(vllm:request_prompt_tokens_bucket[1h] offset 7d))),
+              1
+            )
+          ) > 1.5
+        for: 30m
+        labels:
+          severity: ticket
+          kind: drift
+        annotations:
+          summary: "Median prompt length is {{ $value }}x last week's"
+          description: >-
+            The traffic mix has moved toward longer documents. Expect KV cache
+            pressure and a lower effective knee; the published capacity figure
+            was measured against the old distribution and no longer applies.
+
+      # The same test in the other direction. Traffic getting shorter is not a
+      # problem, but it does mean the deployment is over-provisioned for a
+      # workload it was sized against -- a cost signal, not a reliability one.
+      - alert: PromptLengthCollapsed
+        expr: |
+          (
+            histogram_quantile(0.5, sum by (le) (rate(vllm:request_prompt_tokens_bucket[1h])))
+            /
+            clamp_min(
+              histogram_quantile(0.5, sum by (le) (rate(vllm:request_prompt_tokens_bucket[1h] offset 7d))),
+              1
+            )
+          ) < 0.5
+        for: 30m
+        labels:
+          severity: info
+          kind: drift
+        annotations:
+          summary: "Median prompt length has halved against last week"

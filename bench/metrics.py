@@ -106,7 +106,7 @@ class Distribution:
     maximum: float
 
     @classmethod
-    def of(cls, values: list[float]) -> "Distribution":
+    def of(cls, values: list[float]) -> Distribution:
         ordered = sorted(values)
         return cls(
             n=len(ordered),

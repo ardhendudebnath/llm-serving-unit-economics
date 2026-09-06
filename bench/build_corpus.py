@@ -73,7 +73,7 @@ def _load_harness_prompt(harness_dir: Path):
             "checkout of gst-eval-harness."
         )
     sys.path.insert(0, str(harness_dir.resolve()))
-    from harness import prompt as prompt_mod  # noqa: PLC0415
+    from harness import prompt as prompt_mod
 
     return prompt_mod
 

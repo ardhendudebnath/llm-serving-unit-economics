@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-server
+  labels:
+    app: vllm-server
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm-server
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+# Weights outlive pods. Sized for one model at fp16 plus its quantised
+# siblings, since the ladder reuses the same cache across deploys.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-model-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 60Gi
