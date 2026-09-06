@@ -1,0 +1,224 @@
+# Getting from Windows to a serving GPU
+
+The measurements run on a local **RTX 5070 Ti Laptop GPU**. Everything else in
+this repository already runs on CPU; this page is the one-off setup that makes
+the measurement runs possible.
+
+Read the sizing section before pulling any weights. 12 GB is the constraint
+that decides the whole project, and getting it wrong costs a download rather
+than a rental — but it still costs an evening.
+
+---
+
+## 0. What the hardware actually is
+
+Read from `nvidia-smi` on 2026-09-07, not inferred from the model name:
+
+| | |
+|---|---|
+| GPU | NVIDIA GeForce RTX 5070 Ti **Laptop** GPU |
+| VRAM | **12,227 MiB** (~12 GB) |
+| Driver | 595.79 |
+| CUDA | 13.2 |
+| Compute capability | **12.0** (Blackwell, `sm_120`) |
+| Max SM clock | 3,090 MHz |
+
+Two consequences worth knowing before anything else:
+
+- **It is not the 16 GB desktop 5070 Ti.** An 8B model needs ~16 GB of fp16
+  weights before any KV cache, so 8B is out.
+- **It is a laptop card, so it throttles.** `bench/gpu.py` already samples
+  clocks and NVML throttle bits for the span of each load point and flags any
+  point where performance was limited. Expect flags on long high-rate runs;
+  they are honest, not a bug.
+
+---
+
+## 1. WSL2
+
+vLLM is Linux-only. Windows needs WSL2, which needs admin and a reboot:
+
+```powershell
+wsl --install
+```
+
+After the reboot, confirm the GPU is visible *inside* WSL. This is the step
+that actually matters — WSL2 passes the GPU through via the Windows driver, and
+no separate Linux NVIDIA driver should be installed:
+
+```bash
+nvidia-smi
+```
+
+If that prints the 5070 Ti from inside WSL, passthrough works. If it does not,
+stop here — nothing below will work, and the usual cause is an out-of-date
+Windows NVIDIA driver rather than anything in WSL.
+
+---
+
+## 2. Docker with GPU access
+
+Either Docker Desktop with the WSL2 backend, or Docker inside WSL plus
+NVIDIA's container toolkit. Verify with a container that has no relationship to
+this project, so a failure here is unambiguous:
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi
+```
+
+---
+
+## 3. Verify Blackwell before committing to anything
+
+**This is the real technical risk in the project and it is worth ten minutes.**
+`sm_120` is new. vLLM needs kernels compiled for it, which means a build on
+CUDA 12.8+ with a PyTorch that supports Blackwell. The pinned tag in
+`serving/Dockerfile` follows vLLM's release convention and **has not been
+pulled or run** — there is no GPU on the machine this repo was written on.
+
+Check the toolchain sees the card before checking vLLM:
+
+```bash
+docker run --rm --gpus all vllm/vllm-openai:v0.11.0 \
+  python3 -c "import torch; print(torch.__version__, torch.cuda.get_device_capability())"
+```
+
+Expect `(12, 0)`. A `no kernel image is available for execution on the device`
+error means that build predates Blackwell support — move the pin in
+`serving/Dockerfile` forward to a release built on CUDA 12.8 or later, and
+record which one worked. That version pin is part of what the measurements
+mean, so it belongs in the commit message.
+
+---
+
+## 4. Sizing the model to 12 GB
+
+The full **fp16 → int8 → int4** ladder is the point of the project, and fp16 is
+the baseline every quality delta is measured against. So the model has to fit
+at fp16, not merely at int4.
+
+Budget, with ~1 GB for the CUDA context and activations:
+
+| Model size | fp16 weights | Left for KV cache | Verdict |
+|---|---:|---:|---|
+| 8B | ~16 GB | — | **does not fit at all** |
+| 7B | ~14 GB | — | does not fit |
+| 4B | ~8 GB | ~3 GB | **fits** |
+| 3B | ~6 GB | ~5 GB | fits comfortably |
+
+### KV cache, which is what actually decides the batch size
+
+For a 4B-class model with grouped-query attention — roughly 36 layers, 8 KV
+heads, head dimension 128 — one token of KV cache costs:
+
+```
+2 (K and V) × 8 heads × 128 dim × 2 bytes = 4 KB per layer
+                          × 36 layers      = ~147 KB per token
+```
+
+So the context length you reserve for is expensive:
+
+| `MAX_MODEL_LEN` | Per sequence | Sequences in ~3 GB |
+|---:|---:|---:|
+| 8192 | ~1.2 GB | 2 |
+| 4096 | ~0.6 GB | 5 |
+| 2048 | ~0.3 GB | 10 |
+
+**The `long_in` corpus has a median prompt of 7,177 characters, roughly 1,800
+tokens.** Reserving 8192 therefore buys nothing the traffic uses and costs more
+than half the available concurrency. Set `MAX_MODEL_LEN=4096` — enough for the
+longest real prompt with room for the answer, and it roughly doubles how many
+sequences fit in a batch.
+
+This is the tradeoff the plan calls interview material, and here it is concrete
+rather than abstract: at 12 GB, max sequence length and max batch size are
+directly trading against each other in the same 3 GB.
+
+### Quantised checkpoints
+
+int8 and int4 are **not runtime flags**. vLLM loads pre-quantised weights, so
+each rung needs its own checkpoint:
+
+- **fp16** — the base repo.
+- **int8** — a `compressed-tensors` W8A8 checkpoint.
+- **int4** — an AWQ checkpoint.
+
+Confirm all three exist for the chosen model *before* starting, and record the
+exact repo ids. If a rung has no checkpoint, that rung is **missing from the
+results**, not approximated — the same rule the rest of this repo follows about
+numbers nobody measured.
+
+---
+
+## 5. Run it
+
+```bash
+docker build -t llm-serving:local serving/
+
+docker run -d --name vllm --gpus all -p 8000:8000 --shm-size 2g \
+  -e MODEL_ID=<the fp16 repo> \
+  -e PRECISION=fp16 \
+  -e MAX_MODEL_LEN=4096 \
+  -e MAX_NUM_SEQS=16 \
+  -e GPU_MEMORY_UTILIZATION=0.90 \
+  -v "$HOME/.cache/huggingface:/models" \
+  llm-serving:local
+
+curl -fsS http://localhost:8000/health && curl -s http://localhost:8000/v1/models
+```
+
+Then the measurement, which is one command:
+
+```bash
+python -m bench.sweep --all-profiles --precision fp16 --slo 5.0
+```
+
+And the quality half, against the same server — Project 01 needs no changes
+beyond a base URL, because vLLM speaks the same wire format:
+
+```bash
+cd ../domain-eval-harness
+NIM_BASE_URL=http://localhost:8000 NIM_MODEL=<served id> \
+  python -m harness.run --model open-weight-vllm
+```
+
+---
+
+## 6. Before the ladder: measure the noise floor
+
+The deploy gate refuses to work without one, deliberately — see
+`gate/compare.py`. Run the **same** configuration at least three times and let
+`gate/record.py` bank the spread:
+
+```bash
+for i in 1 2 3 4 5; do
+  NIM_BASE_URL=http://localhost:8000 NIM_MODEL=<served id> \
+    python -m harness.run --model open-weight-vllm
+done
+cp results/*.json ../llm-serving-unit-economics/results/eval/
+
+cd ../llm-serving-unit-economics
+python -m gate.record --runs "results/eval/*.json" --precision fp16
+```
+
+Self-hosted greedy decoding should be far more stable than the API runs that
+produced Project 01's 14.3-point spread, but it will not be *zero*: vLLM's
+batching is non-deterministic in the sense that matters here, because a
+different batch composition changes floating-point reduction order, which
+occasionally changes a token. Measure it rather than assuming it away — the
+whole gate rests on that number.
+
+---
+
+## Order of work
+
+1. WSL2, GPU passthrough, Docker — **§1–2**
+2. Blackwell kernel check — **§3**, before downloading weights
+3. fp16 baseline + noise floor — **§5–6**
+4. Sweeps at fp16 across all three profiles
+5. int8, then int4: sweep and score each
+6. Read a GPU rate, or derive one with `amortised_usd_per_hour()`, and render
+   the charts
+
+Steps 1–3 are the risky ones. Everything after them is running scripts that
+already exist and are already tested.

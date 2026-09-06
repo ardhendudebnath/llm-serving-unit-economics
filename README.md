@@ -202,6 +202,10 @@ pending.
 > **Cost warning first.** The measurement runs need a GPU. Everything else —
 > container, manifests, dashboards, load generator, cost model, gate — runs on
 > CPU and costs nothing. Set a hard billing alert before renting anything.
+>
+> For the GPU side, [`docs/setup.md`](docs/setup.md) is the runbook: WSL2, the
+> Blackwell kernel check to do *before* downloading weights, and the KV-cache
+> arithmetic that decides batch size at 12 GB.
 
 ```bash
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
