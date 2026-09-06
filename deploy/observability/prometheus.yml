@@ -1,0 +1,69 @@
+# Prometheus scrape configuration.
+#
+# Two jobs, because no single exporter has both halves of the story: vLLM knows
+# its queue depth and token rates but has no idea what the GPU is doing, and
+# DCGM knows the GPU but nothing about requests. The cost figures need both --
+# which is why `GpuMetricsMissing` is an alert rather than a blank panel.
+
+global:
+  # 10s rather than the 15s default. A load sweep steps through arrival rates
+  # in two-minute blocks, and at 15s a short point yields too few samples to
+  # see the queue build.
+  scrape_interval: 10s
+  evaluation_interval: 15s
+  external_labels:
+    project: llm-serving-unit-economics
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+      # Left empty deliberately. The rules are the deliverable; wiring them to
+      # a pager needs a real Alertmanager, and a config pointing at a host that
+      # does not exist would fail silently and look configured.
+
+scrape_configs:
+  - job_name: vllm
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["vllm:8000"]
+        labels:
+          component: inference-server
+
+  # GPU utilisation and VRAM. Without this every cost panel is unverifiable,
+  # because utilisation is what says whether a per-request figure is honest.
+  - job_name: dcgm
+    static_configs:
+      - targets: ["dcgm-exporter:9400"]
+        labels:
+          component: gpu
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # In-cluster discovery, for when this runs on k3s rather than compose. The
+  # deployment carries the prometheus.io/* annotations this reads.
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels:
+          [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: pod
