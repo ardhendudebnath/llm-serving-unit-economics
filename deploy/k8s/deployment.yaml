@@ -1,0 +1,149 @@
+# vLLM serving one open-weight model.
+#
+# The probe configuration below is the part worth reading. A model server
+# breaks every assumption the default probe settings are built on: it takes
+# minutes to become useful, it stays useful while very slow, and restarting it
+# is expensive rather than cheap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-server
+  labels:
+    app: vllm-server
+spec:
+  # One replica. The plan is explicit that this is one deployment measured
+  # properly, not a platform -- and a second replica would halve the GPU hours
+  # available for measurement while adding nothing to the cost curves.
+  replicas: 1
+  strategy:
+    # Never Recreate: a rolling update keeps the old pod serving while the new
+    # one spends minutes loading weights. maxSurge 1 costs a second GPU for the
+    # length of the rollout, which is the honest price of a zero-downtime
+    # deploy and is called out in the cost writeup.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: vllm-server
+  template:
+    metadata:
+      labels:
+        app: vllm-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Weights survive pod restarts. Without this every restart re-downloads
+      # several GB, which turns a 90-second start into a 15-minute one and
+      # makes the startup probe budget below unmeetable.
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: vllm-model-cache
+        # vLLM needs more shared memory than the 64MB default for its worker
+        # IPC. Too small a value surfaces as an opaque hang during load, not
+        # as an error.
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: vllm
+          image: ghcr.io/ardhendudebnath/llm-serving-unit-economics/vllm:v0.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+
+          envFrom:
+            - configMapRef:
+                name: vllm-config
+
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: dshm
+              mountPath: /dev/shm
+
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 24Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 16Gi
+              cpu: "4"
+
+          # --- Probes -------------------------------------------------------
+          #
+          # Startup probe. This is the one that makes the other two sane. It
+          # suppresses liveness and readiness entirely until the model has
+          # loaded, so neither of them needs a long initialDelaySeconds.
+          #
+          # Budget: 60 x 10s = 10 minutes. Sized from the slowest realistic
+          # cold start -- weights already on the PVC, but CUDA graph capture
+          # and KV cache profiling still to do -- with roughly 3x headroom. A
+          # first-ever start that downloads weights will exceed this and the
+          # pod will CrashLoop, which is the correct outcome: it is visible,
+          # rather than a pod that silently takes 40 minutes to appear.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 5
+
+          # Readiness. Decides whether the Service sends traffic here. Fails
+          # fast because a pod that cannot answer should leave the endpoint
+          # list quickly -- but with failureThreshold 3, not 1, so a single
+          # slow scrape during a burst does not flap the pod out of rotation.
+          #
+          # timeoutSeconds is 3, deliberately far below the p99 of an actual
+          # completion: /health does not run inference, so if it cannot answer
+          # in 3 seconds the event loop itself is blocked, which is a real
+          # readiness failure rather than a slow request.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
+            successThreshold: 1
+
+          # Liveness. Restarts the container, so it is deliberately the least
+          # sensitive of the three.
+          #
+          # The failure mode this guards against is a wedged process, not a
+          # busy one. A saturated model server is slow, not dead, and killing
+          # it under load is how a traffic spike becomes an outage: the
+          # restart drops every in-flight request and takes minutes to come
+          # back, during which the load shifts nowhere and the next pod dies
+          # the same way.
+          #
+          # Hence 30s period and 6 failures -- three minutes of continuous
+          # unresponsiveness before a restart. Liveness is never wired to
+          # queue depth or latency for the same reason.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            failureThreshold: 6
+            timeoutSeconds: 10
+
+          lifecycle:
+            preStop:
+              # Let in-flight generations finish before SIGTERM. long_out
+              # requests can run for tens of seconds, and cutting them off
+              # would show up in the error rate of any sweep running across a
+              # rollout.
+              exec:
+                command: ["sh", "-c", "sleep 15"]

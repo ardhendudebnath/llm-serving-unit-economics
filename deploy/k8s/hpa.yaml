@@ -1,0 +1,79 @@
+# Autoscaling on queue depth, not CPU.
+#
+# **CPU utilisation is the wrong signal for a GPU model server, and using it is
+# the single most common mistake in this manifest's genre.** The Python process
+# fronting vLLM is mostly waiting on CUDA; it can sit at 15 % CPU while the GPU
+# is saturated and the queue is 200 deep. An HPA watching CPU would refuse to
+# scale exactly when the deployment is failing its SLO.
+#
+# The signal that actually tracks the SLO is the number of requests waiting to
+# be scheduled. vLLM exports it as `vllm:num_requests_waiting`, and it rises
+# before latency does -- queueing is the mechanism by which p95 degrades, so
+# watching the queue is watching the cause rather than the symptom.
+#
+# This requires prometheus-adapter to expose the metric to the HPA. Without it
+# the HPA reports `<unknown>` for the target and does not scale, which is a
+# quiet failure -- deploy/observability/alerts.yml carries a rule for it.
+#
+# ---------------------------------------------------------------------------
+# **Honest limitation: this cannot absorb a sudden spike.** A new replica needs
+# minutes to load weights and capture CUDA graphs, so the HPA's reaction is far
+# slower than the traffic it reacts to. Against a 10x spike at the knee, this
+# manifest buys nothing for the first several minutes; what actually protects
+# the SLO in that window is bounded queueing plus load shedding at the ingress,
+# and beyond that, running spare capacity you have already paid for. The
+# scaleUp policy below is written to be fast, not to pretend it is fast enough.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vllm-server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vllm-server
+
+  minReplicas: 1
+  # Capped low on purpose. Each replica is a whole GPU, and an HPA that can
+  # quietly reach for eight of them is a billing incident waiting to happen.
+  maxReplicas: 3
+
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: vllm_num_requests_waiting
+        target:
+          type: AverageValue
+          # Five queued requests per replica. Set from the measured knee: at
+          # the arrival rate where p95 crosses the SLO, the queue sits around
+          # this depth, so this is the load level at which another replica is
+          # genuinely needed rather than a round number.
+          #
+          # Re-derive this from the sweep whenever the model, precision or
+          # max-num-seqs changes -- it is a measurement, not a constant.
+          averageValue: "5"
+
+  behavior:
+    scaleUp:
+      # No stabilisation window: when the queue is deep the deployment is
+      # already missing its SLO, and waiting to confirm makes it worse.
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Max
+
+    scaleDown:
+      # Ten minutes of sustained quiet before giving a GPU back. Long because
+      # scaling down is cheap to delay and expensive to get wrong: a replica
+      # removed during a lull costs minutes of cold start when traffic
+      # returns, and the GPU-underutilisation alert will surface a genuinely
+      # idle card faster than the HPA would.
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 300
+      selectPolicy: Min

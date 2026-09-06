@@ -1,0 +1,194 @@
+# The deploy gate.
+#
+# A serving change that degrades measured quality does not merge.
+#
+# **What this pipeline can and cannot do, stated plainly.** GitHub-hosted
+# runners have no GPU, and this project runs on free-tier hardware, so the eval
+# cannot execute here. A workflow that claimed to run it would be green because
+# it never ran -- the worst possible outcome for a control.
+#
+# So the gate is split. What CI enforces on every pull request:
+#
+#   1. a change to serving behaviour must arrive with a scored run attached
+#      (gate/guard.py) -- an unmeasured serving change cannot be merged;
+#   2. that run must not regress against the committed baseline beyond the
+#      measured noise floor (gate/compare.py);
+#   3. the result table is posted to the pull request either way.
+#
+# The eval itself runs on borrowed GPU time, by hand, and its output is
+# committed. The `gate-live` job below runs the full loop automatically when a
+# GPU runner is available, and is skipped -- visibly -- when one is not.
+
+name: quality-gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Needed to post the results table onto the pull request.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The guard diffs against the base branch, which needs history.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: List changed files
+        id: changed
+        run: |
+          git diff --name-only \
+            "origin/${{ github.base_ref || 'main' }}...HEAD" > changed.txt
+          echo "--- changed in this PR ---"
+          cat changed.txt
+
+      # Does this change need a measurement, and did it bring one?
+      - name: Require a scored run for serving changes
+        id: guard
+        run: python -m gate.guard --changed changed.txt
+
+      # Only meaningful once a run is attached. Picks the newest result so a
+      # PR that adds several is judged on its latest.
+      - name: Compare against the committed baseline
+        id: compare
+        run: |
+          candidate="$(ls -1 results/eval/*.json 2>/dev/null | sort | tail -n1 || true)"
+          if [ -z "$candidate" ]; then
+            echo "no eval results in the repo yet -- nothing to compare"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "comparing $candidate"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          python -m gate.compare \
+            --candidate "$candidate" \
+            --baseline gate/baseline.json \
+            --markdown gate-comment.md
+
+      - name: Post the results table on the pull request
+        if: always() && github.event_name == 'pull_request' && hashFiles('gate-comment.md') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('gate-comment.md', 'utf8');
+            const marker = '<!-- quality-gate -->';
+
+            // Update the existing comment rather than adding one per push, so
+            // a long-running PR does not accumulate a wall of stale tables.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(
+              c => c.user.type === 'Bot' && c.body.includes(marker)
+            );
+
+            const payload = `${marker}\n${body}`;
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: payload,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: payload,
+              });
+            }
+
+  # The full loop: build the image, serve the model, score it, gate on the
+  # result. Runs only where a GPU runner is registered under the `gpu` label.
+  #
+  # `if` rather than a required check: on this project's budget there is
+  # usually no such runner, and a permanently pending required check would
+  # block every merge. When it does run, it is authoritative.
+  gate-live:
+    runs-on: [self-hosted, gpu]
+    if: ${{ vars.HAVE_GPU_RUNNER == 'true' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out Project 01 at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ardhendudebnath/gst-eval-harness
+          # Pinned, not a branch. A gate whose baseline can move underneath it
+          # is not a gate.
+          ref: 2300a1c
+          path: harness-repo
+
+      - name: Build the serving image
+        run: docker build -t vllm-under-test:${{ github.sha }} serving/
+
+      # The container is started from the same ConfigMap the cluster uses, so
+      # the thing being gated is the configuration that would actually deploy
+      # -- not a copy of it that can drift.
+      - name: Render the serving config
+        run: |
+          python -m pip install pyyaml
+          python - > serving.env <<'PY'
+          import yaml
+          cfg = yaml.safe_load(open("deploy/k8s/configmap.yaml"))["data"]
+          for key, value in cfg.items():
+              print(f"{key}={value}")
+          PY
+          echo "--- config under test ---"
+          cat serving.env
+
+      - name: Start the server with the new configuration
+        run: |
+          docker run -d --name vllm-under-test --gpus all -p 8000:8000 \
+            --env-file serving.env \
+            --shm-size 2g \
+            -v "$HOME/.cache/huggingface:/models" \
+            vllm-under-test:${{ github.sha }}
+
+      # Matches the startup probe budget in deploy/k8s/deployment.yaml. If the
+      # server is not up in ten minutes something is wrong, and waiting longer
+      # only burns GPU time.
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health; then
+              echo "ready after $((i * 10))s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "server did not become ready in 10 minutes"
+          docker logs vllm-under-test | tail -50
+          exit 1
+
+      - name: Score with Project 01's harness
+        working-directory: harness-repo
+        env:
+          NIM_BASE_URL: http://localhost:8000
+        run: |
+          python -m pip install --upgrade pip
+          python -m harness.run --model open-weight-local
+          mkdir -p ../results/eval
+          cp results/*.json ../results/eval/
+
+      - name: Gate on the result
+        run: |
+          candidate="$(ls -1 results/eval/*.json | sort | tail -n1)"
+          python -m gate.compare --candidate "$candidate" --markdown gate-comment.md
+
+      - name: Stop the server
+        if: always()
+        run: docker rm -f vllm-under-test || true

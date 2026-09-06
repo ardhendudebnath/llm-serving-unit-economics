@@ -66,7 +66,7 @@ class RunConfig:
 
 
 async def _one_request(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     cfg: RunConfig,
     req: workloads.Request,
     queued_at: float,
@@ -193,7 +193,7 @@ async def run_point(cfg: RunConfig, corpus: list[workloads.Request]) -> LoadPoin
 
 
 async def _drive(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     cfg: RunConfig,
     corpus: list[workloads.Request],
     sem: asyncio.Semaphore,
