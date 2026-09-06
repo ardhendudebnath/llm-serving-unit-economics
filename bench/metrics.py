@@ -21,6 +21,16 @@ from dataclasses import dataclass, field
 #: not.
 REPORTED = (50.0, 95.0, 99.0)
 
+#: Error rate above which a load point cannot count as meeting its SLO,
+#: however good its latency looks. A server that hits a latency target by
+#: refusing requests has not hit it.
+#:
+#: Defined here and imported by `bench.sweep` and referenced by the Prometheus
+#: rule in deploy/observability/rules.yml, so the benchmark, the resumed sweep
+#: and the alert all share one definition of "working" rather than drifting to
+#: three.
+ERROR_CEILING = 0.01
+
 
 @dataclass(slots=True)
 class RequestRecord:
@@ -225,7 +235,7 @@ def find_knee(points: list[LoadPoint], slo_p95_s: float) -> LoadPoint | None:
     passing: LoadPoint | None = None
     for point in sorted(points, key=lambda p: p.target_rate_rps):
         dist = point.total_latency()
-        if dist is None or point.error_rate > 0.01 or dist.p95 > slo_p95_s:
+        if dist is None or point.error_rate > ERROR_CEILING or dist.p95 > slo_p95_s:
             break
         passing = point
     return passing

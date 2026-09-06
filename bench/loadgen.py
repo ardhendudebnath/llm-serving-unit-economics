@@ -294,7 +294,7 @@ def main() -> int:
     args = ap.parse_args()
 
     corpus = workloads.load(args.profile)
-    model = args.model or _discover_model(args.base_url)
+    model = args.model or discover_model(args.base_url)
 
     cfg = RunConfig(
         base_url=args.base_url,
@@ -326,7 +326,7 @@ def main() -> int:
     return 0
 
 
-def _discover_model(base_url: str) -> str:
+def discover_model(base_url: str) -> str:
     """Ask the server what it is serving, rather than making the user repeat it."""
     if httpx is None:
         raise RuntimeError("the load generator needs httpx: pip install -e '.[load]'")

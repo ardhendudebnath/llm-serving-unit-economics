@@ -49,3 +49,30 @@ def test_editing_the_baseline_is_flagged_for_human_review():
 def test_blank_lines_are_ignored():
     reasons, attached, _ = classify(["", "  ", "deploy/k8s/configmap.yaml", ""])
     assert reasons and not attached
+
+
+def test_a_byte_order_mark_does_not_disable_the_gate():
+    # Found the hard way: a BOM on the first line renders invisibly and made
+    # classify() report "no serving change" for a precision change. That is
+    # failing open, which is the one direction a gate must never fail.
+    reasons, _, _ = classify(["﻿deploy/k8s/configmap.yaml"])
+    assert reasons
+
+
+def test_guard_blocks_when_the_diff_produced_nothing(tmp_path, capsys):
+    # An empty changed-file list means the diff failed, not that nothing
+    # changed -- a pull request always changes something.
+    from gate.guard import main
+
+    empty = tmp_path / "changed.txt"
+    empty.write_text("\n  \n", encoding="utf-8")
+
+    sys_argv = ["gate.guard", "--changed", str(empty)]
+    import sys
+
+    original, sys.argv = sys.argv, sys_argv
+    try:
+        assert main() == 1
+    finally:
+        sys.argv = original
+    assert "did not run" in capsys.readouterr().out
