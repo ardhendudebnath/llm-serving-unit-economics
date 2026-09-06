@@ -1,0 +1,26 @@
+# Secrets. Never commit a real key or a provider token.
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Raw measurement output. Summarised runs under results/ are committed on
+# purpose -- they are the evidence. These are the bulky per-request traces
+# that back them, and they regenerate from the summaries' run ids.
+results/raw/
+*.ndjson.gz
+
+# Local cluster / tooling state
+kubeconfig
+*.tgz
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

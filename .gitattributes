@@ -1,0 +1,14 @@
+# Measurement output is line-oriented JSON and must survive a round trip
+# through Windows unchanged, or its recorded hash stops matching.
+*.jsonl   text eol=lf
+*.ndjson  text eol=lf
+*.json    text eol=lf
+
+# Shell scripts run inside Linux containers; CRLF breaks the shebang.
+*.sh      text eol=lf
+Dockerfile text eol=lf
+
+*.py      text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.md      text eol=lf

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-serving-unit-economics"
+version = "0.1.0"
+description = "Latency, quality and cost curves for serving one open-weight LLM"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# The core is stdlib-only, the same promise Project 01 makes and for the same
+# reason: the cost model and the CI quality gate have to run on a fresh clone
+# with nothing installed. A gate that needs a package index to decide whether a
+# deploy is safe is a gate that fails open on a bad network day.
+dependencies = []
+
+[project.optional-dependencies]
+# Only the load generator needs a client, and only because a Poisson arrival
+# process wants real concurrency. Everything that reads its output is stdlib.
+load = [
+    "httpx>=0.27",
+]
+charts = [
+    "matplotlib>=3.8",
+]
+# The quality gate scores against Project 01. Pinned to a commit, not a branch:
+# a gate whose baseline can move underneath it is not a gate.
+eval = [
+    "gst-eval-harness @ git+https://github.com/ardhendudebnath/gst-eval-harness.git@2300a1c",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["bench*", "gate*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
