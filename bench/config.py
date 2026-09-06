@@ -57,6 +57,33 @@ class GpuSpec:
 #: Rates are deliberately left at 0.0 until read from a provider and dated.
 #: Filling one in from memory is how a cost curve becomes fiction.
 GPUS: dict[str, GpuSpec] = {
+    # The card these measurements actually run on.
+    #
+    # **It cannot be rented, and that is a genuine problem for the cost curve
+    # rather than a detail.** No cloud offers a laptop 5070 Ti, so there is no
+    # provider rate to read. Substituting a rentable card's price would be
+    # worse than leaving this blank: throughput was measured on *this* silicon,
+    # and pairing it with a different card's hourly rate produces a figure that
+    # describes no machine that exists.
+    #
+    # The defensible route is `amortised_usd_per_hour()` below -- what an hour
+    # on this card costs its owner, from the purchase price, an assumed useful
+    # life and the measured power draw. It is a real number for a real machine,
+    # and every input to it is stated.
+    #
+    # 12 GB, not the desktop card's 16. Read from nvidia-smi on 2026-09-07:
+    # 12,227 MiB, driver 595.79, compute capability 12.0 (Blackwell, sm_120).
+    "rtx5070ti-laptop": GpuSpec(
+        key="rtx5070ti-laptop",
+        name="NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+        vram_gb=12,
+        market_usd_per_hour=0.0,
+        obtained_via="owned hardware; see amortised_usd_per_hour()",
+    ),
+    # Rentable comparators. Used to answer "what would this cost in a cloud",
+    # which needs its *own* throughput measurement -- these rows exist so a
+    # future sweep on rented hardware has somewhere to record its rate, not so
+    # local throughput can borrow a cloud price.
     "t4": GpuSpec(
         key="t4",
         name="NVIDIA T4",
@@ -69,16 +96,51 @@ GPUS: dict[str, GpuSpec] = {
         name="NVIDIA A10G",
         vram_gb=24,
         market_usd_per_hour=0.0,
-        obtained_via="Modal monthly free credit",
+        obtained_via="rentable",
     ),
     "l4": GpuSpec(
         key="l4",
         name="NVIDIA L4",
         vram_gb=24,
         market_usd_per_hour=0.0,
-        obtained_via="Lightning AI free tier",
+        obtained_via="rentable",
     ),
 }
+
+
+def amortised_usd_per_hour(
+    *,
+    hardware_usd: float,
+    useful_life_years: float,
+    duty_cycle: float,
+    mean_power_w: float,
+    electricity_usd_per_kwh: float,
+    pue: float = 1.0,
+) -> float:
+    """Hourly cost of owning a GPU, for hardware that cannot be rented.
+
+    Capital cost spread over the hours it will actually be used, plus the
+    electricity it draws while used. Every input is an argument rather than a
+    constant, because every one of them is an assumption the reader is entitled
+    to disagree with -- and the report prints them next to the result.
+
+    `duty_cycle` is the fraction of its life the card spends serving. This is
+    the input that moves the answer most: a card serving 10 % of the time costs
+    ten times as much per serving-hour as one serving continuously, and quoting
+    an amortised rate without stating it is meaningless.
+
+    `pue` covers cooling and conversion overhead in a datacentre. Left at 1.0
+    for a laptop on a desk, where there is no such overhead to attribute.
+    """
+    if not 0.0 < duty_cycle <= 1.0:
+        raise ValueError("duty_cycle must be in (0, 1]")
+    if useful_life_years <= 0:
+        raise ValueError("useful_life_years must be positive")
+
+    serving_hours = useful_life_years * 365.0 * 24.0 * duty_cycle
+    capital_per_hour = hardware_usd / serving_hours
+    energy_per_hour = (mean_power_w / 1000.0) * pue * electricity_usd_per_kwh
+    return capital_per_hour + energy_per_hour
 
 
 @dataclass(frozen=True, slots=True)

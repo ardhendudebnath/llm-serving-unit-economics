@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bench import workloads
+from bench import gpu, workloads
 from bench.loadgen import RunConfig, discover_model, run_point
 from bench.metrics import ERROR_CEILING
 
@@ -159,7 +159,12 @@ def sweep_one(
             duration_s=duration_s, warmup_s=warmup_s, seed=seed,
         )
         print(f"\n  {profile}/{precision} @ {rate:g} rps ...", flush=True)
-        point = asyncio.run(run_point(cfg, corpus))
+        # VRAM, utilisation, clocks and temperature are sampled for exactly the
+        # span of the load point. Logged the first time so a sweep never has to
+        # be repeated to recover a number nobody recorded.
+        with gpu.Monitor() as monitor:
+            point = asyncio.run(run_point(cfg, corpus))
+        telemetry = monitor.summary()
 
         dist = point.total_latency()
         if dist is None:
@@ -169,6 +174,7 @@ def sweep_one(
             break
 
         row = point.as_row()
+        row["gpu"] = telemetry
         state.points.append(row)
         # Checkpoint before anything else can go wrong. A preempted instance
         # loses this point, not the sweep.
@@ -179,6 +185,14 @@ def sweep_one(
         print(f"    achieved {point.achieved_rps:.2f} rps · p50 {dist.p50:.2f}s · "
               f"p95 {dist.p95:.2f}s · p99 {dist.p99:.2f}s · "
               f"err {point.error_rate:.1%}{flag}")
+
+        if telemetry:
+            print(f"    VRAM {telemetry['peak_vram_mib']:.0f}/"
+                  f"{telemetry['total_vram_mib']:.0f} MiB · "
+                  f"GPU {telemetry['mean_utilisation_pct']:.0f}% · "
+                  f"{telemetry['peak_temperature_c']:.0f}C")
+            if warning := gpu.throttling_warning(telemetry):
+                print(f"    warning: {warning}")
 
         if dist.p95 > slo_p95_s * ABANDON_AT:
             state.stopped_because = (
