@@ -15,10 +15,21 @@ spec:
 ---
 # Weights outlive pods. Sized for one model at fp16 plus its quantised
 # siblings, since the ladder reuses the same cache across deploys.
+#
+# **Not used by deployment.yaml on this cluster, and kept on purpose.** k3s
+# would satisfy this with local-path storage -- an empty directory -- and the
+# pod would then re-download 8 GB that already exists on the host. So the
+# deployment bind-mounts /opt/llm-models instead, and this manifest stands as
+# the shape a real multi-node cluster needs: swap the hostPath volume for a
+# claim on this, backed by ReadWriteMany storage, and nothing else changes.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: vllm-model-cache
+  annotations:
+    note: >-
+      Unbound on the single-node measurement cluster; see the hostPath volume
+      in deployment.yaml and the comment there for why.
 spec:
   accessModes:
     - ReadWriteOnce

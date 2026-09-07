@@ -36,13 +36,34 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
+      # **Without this the pod gets no GPU.** k3s writes `nvidia` and
+      # `nvidia-experimental` RuntimeClasses at install time, but only if
+      # nvidia-container-runtime was on PATH before k3s started -- install the
+      # toolkit first. A pod that omits this schedules happily and then fails
+      # inside CUDA, which reads as a driver problem rather than a missing line
+      # of YAML.
+      runtimeClassName: nvidia
+
       # Weights survive pod restarts. Without this every restart re-downloads
-      # several GB, which turns a 90-second start into a 15-minute one and
+      # several GB, which turns a 90-second start into a 35-minute one and
       # makes the startup probe budget below unmeetable.
       volumes:
         - name: model-cache
-          persistentVolumeClaim:
-            claimName: vllm-model-cache
+          # hostPath, not a PersistentVolumeClaim, and deliberately.
+          #
+          # A PVC here would be filled by k3s's local-path provisioner with an
+          # *empty* directory, and the pod would re-download 8 GB it already
+          # has. This path holds weights that survived the migration off
+          # Docker precisely because they were never inside a container
+          # engine's volume tree.
+          #
+          # The tradeoff is honest: hostPath pins the pod to this node, which
+          # is fine for a single-node measurement cluster and would not be on a
+          # real one. A multi-node deployment wants a ReadWriteMany PVC or an
+          # init container that pulls from object storage.
+          hostPath:
+            path: /opt/llm-models
+            type: Directory
         # vLLM needs more shared memory than the 64MB default for its worker
         # IPC. Too small a value surfaces as an opaque hang during load, not
         # as an error.
@@ -87,8 +108,8 @@ spec:
           # loaded, so neither of them needs a long initialDelaySeconds.
           #
           # Budget: 60 x 10s = 10 minutes. Sized for a start where the weights
-          # are already on the PVC and only CUDA graph capture and KV cache
-          # profiling remain.
+          # are already on the host volume above and only CUDA graph capture
+          # and KV cache profiling remain.
           #
           # **Measured 2026-09-07: a first-ever start blows straight through
           # this, and that is the intended behaviour.** Pulling the 8.04 GB
@@ -99,7 +120,8 @@ spec:
           #
           # The fix is not a longer budget -- it is to warm the volume once, so
           # the assumption above holds. That gap, ~35 minutes cold against ~90
-          # seconds warm, is the entire justification for the PVC.
+          # seconds warm, is the entire justification for mounting weights from
+          # the host rather than letting each pod fetch its own.
           startupProbe:
             httpGet:
               path: /health
