@@ -8,7 +8,6 @@ from bench.config import (
     amortised_usd_per_hour,
     get_gpu,
     priced,
-    vram_estimate_gb,
 )
 
 
@@ -27,20 +26,20 @@ def test_the_local_card_is_recorded_as_measured_not_as_assumed():
     assert spec.vram_gb == 12
 
 
-def test_an_8b_model_does_not_fit_the_local_card_at_fp16():
-    # The constraint that drives the model choice: weights alone exceed the
-    # card before any KV cache exists.
-    assert vram_estimate_gb(8.0, "fp16") == 16.0
-    assert vram_estimate_gb(8.0, "fp16") > get_gpu("rtx5070ti-laptop").vram_gb
+def test_an_8b_model_would_not_have_fitted_at_fp16():
+    # The constraint that drove the model choice. An 8B at 16-bit is ~16 GB of
+    # weights before any KV cache exists, against a 12 GB card -- which is why
+    # the ladder is built on a 4B. Kept as a test so the reasoning survives.
+    assert 8.0 * 2 > get_gpu("rtx5070ti-laptop").vram_gb
 
 
-def test_a_4b_model_fits_at_every_rung_of_the_ladder():
+def test_every_rung_fits_the_card_by_measurement_not_estimate():
+    # Sizes are read from each repo's safetensors rather than derived from a
+    # parameter count -- a quantised checkpoint carries scales and packed
+    # containers that a bytes-per-weight estimate misses entirely.
     vram = get_gpu("rtx5070ti-laptop").vram_gb
-    # Leaving real headroom for KV cache, activations and CUDA context.
-    assert vram_estimate_gb(4.0, "fp16") == 8.0
-    assert vram_estimate_gb(4.0, "int8") == 4.0
-    assert vram_estimate_gb(4.0, "int4") == 2.0
-    assert all(vram_estimate_gb(4.0, rung) < vram for rung in LADDER)
+    for key, rung in LADDER.items():
+        assert 0 < rung.weights_gb < vram, f"{key} does not fit"
 
 
 # ------------------------------------------------------------- amortised ----

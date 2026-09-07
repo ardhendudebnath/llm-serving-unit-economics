@@ -40,13 +40,22 @@ GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
 # Turn it on deliberately to measure what it buys, and report it as its own row.
 ENABLE_PREFIX_CACHING="${ENABLE_PREFIX_CACHING:-0}"
 
+# Each rung is a different checkpoint, not a different flag: int8 and int4
+# weights are quantised ahead of time, and pointing MODEL_ID at an fp16 repo
+# with PRECISION=int8 fails at load rather than silently serving fp16.
+#
+# Both quantised rungs use compressed-tensors, from the same publisher. That is
+# deliberate -- see bench/config.py. Serving one rung as AWQ and the other as
+# compressed-tensors would put a quantisation-methodology difference inside a
+# comparison meant to isolate bit width.
 case "$PRECISION" in
-  fp16) QUANT_ARGS=(--dtype float16) ;;
-  # W8A8. Needs a checkpoint that was already quantised -- this is not a
-  # runtime conversion flag, and pointing MODEL_ID at an fp16 repo with
-  # PRECISION=int8 will fail at load rather than silently serve fp16.
+  # bfloat16, not float16. The checkpoint is BF16-native, and forcing float16
+  # narrows the exponent range enough to risk overflow in attention. The rung
+  # is named fp16 because the plan names it that; what is served is 16-bit
+  # native, and the report says which.
+  fp16) QUANT_ARGS=(--dtype bfloat16) ;;
   int8) QUANT_ARGS=(--quantization compressed-tensors) ;;
-  int4) QUANT_ARGS=(--quantization awq) ;;
+  int4) QUANT_ARGS=(--quantization compressed-tensors) ;;
   *)
     echo "PRECISION must be one of fp16, int8, int4 (got '$PRECISION')" >&2
     exit 2

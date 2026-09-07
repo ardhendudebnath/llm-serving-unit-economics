@@ -9,22 +9,37 @@ kind: ConfigMap
 metadata:
   name: vllm-config
 data:
-  # Set to the model actually being benchmarked before applying. Left as a
-  # placeholder rather than a plausible default: a manifest that silently
-  # serves a different model than the results claim is exactly the kind of
-  # mismatch this repo exists to rule out.
-  MODEL_ID: "REPLACE_ME"
-  SERVED_MODEL_NAME: "served-model"
-
+  # The checkpoint for the precision below. Each rung is a different repo --
+  # int8 and int4 are pre-quantised, not runtime flags -- so MODEL_ID and
+  # PRECISION must move together. See docs/models.md and bench/config.py.
+  #
+  #   fp16  Qwen/Qwen3-4B-Instruct-2507                        8.04 GB
+  #   int8  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w8a8     5.19 GB
+  #   int4  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16    3.43 GB
+  MODEL_ID: "Qwen/Qwen3-4B-Instruct-2507"
   PRECISION: "fp16"
 
-  # Sized to the workload, not to the model's architectural maximum. The
-  # long_in corpus tops out near 40,000 characters; 8192 tokens covers it with
-  # room, and every token of headroom beyond that is KV cache reserved for
-  # context the traffic never sends.
-  MAX_MODEL_LEN: "8192"
+  # Stable across the ladder on purpose: the load generator and Project 01's
+  # harness both address the server by this name, so all three rungs are
+  # drop-in replacements for each other and nothing downstream has to change
+  # between runs.
+  SERVED_MODEL_NAME: "gst-4b"
 
-  MAX_NUM_SEQS: "256"
+  # Sized to the workload, not to the architecture. This model advertises
+  # 262,144 positions; reserving for that would consume the whole card in KV
+  # cache for context the traffic never sends.
+  #
+  # KV cache costs 144 KiB/token here (36 layers, 8 KV heads, head_dim 128), so
+  # 4096 tokens is 0.60 GB per sequence. The long_in corpus peaks near 1,800
+  # tokens, so 4096 covers the longest real prompt with room for the answer --
+  # and roughly doubles the concurrent sequences that 8192 would allow.
+  MAX_MODEL_LEN: "4096"
+
+  # At fp16 the weights leave ~2.7 GB for KV cache, which is about 4 sequences
+  # at 4096 tokens. 256 would be a ceiling the card can never reach, and a
+  # ceiling that cannot be hit hides where the real limit is.
+  MAX_NUM_SEQS: "16"
+
   GPU_MEMORY_UTILIZATION: "0.90"
 
   # Off for measurement runs. See serving/entrypoint.sh for why: the corpora
