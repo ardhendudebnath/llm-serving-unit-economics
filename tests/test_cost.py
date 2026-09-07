@@ -16,13 +16,13 @@ from bench.cost import (
 GPU = GpuSpec(
     key="test",
     name="Test GPU",
-    vram_gb=24,
+    vram_mib=24_576,
     market_usd_per_hour=1.0,
     rate_read_on="2026-09-06",
     rate_source="fixture",
 )
 
-UNPRICED = GpuSpec(key="unpriced", name="Unpriced", vram_gb=24, market_usd_per_hour=0.0)
+UNPRICED = GpuSpec(key="unpriced", name="Unpriced", vram_mib=24_576, market_usd_per_hour=0.0)
 
 # 2 rps at the SLO -> 7,200 requests/hour on one GPU.
 CAP = Capacity(

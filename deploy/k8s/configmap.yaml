@@ -40,7 +40,25 @@ data:
   # ceiling that cannot be hit hides where the real limit is.
   MAX_NUM_SEQS: "16"
 
-  GPU_MEMORY_UTILIZATION: "0.90"
+  # 0.85, not the usual 0.90, and the reason is specific to this hardware.
+  #
+  # vLLM reads this as a fraction of *total* VRAM, then refuses to start if
+  # less than that is actually free. On this card 0.90 failed by 10 MiB:
+  #
+  #   Free memory on device (10.74/11.94 GiB) on startup is less than desired
+  #   GPU memory utilization (0.9, 10.75 GiB)
+  #
+  # Two things eat the gap. The GPU also drives the display under WDDM, which
+  # reserves a few hundred MiB, and vLLM measures free memory *after* creating
+  # its own CUDA context, which costs several hundred more. nvidia-smi reported
+  # 11,737 MiB free moments earlier -- so reading nvidia-smi and setting the
+  # fraction from that is exactly how to get this wrong.
+  #
+  # 0.85 asks for ~10.15 GiB and leaves ~0.6 GiB of margin, which also absorbs
+  # the display's demands fluctuating while a sweep runs. It costs KV cache:
+  # ~2.9 GB after the fp16 weights, or roughly 4.7 concurrent sequences at
+  # 4,096 tokens.
+  GPU_MEMORY_UTILIZATION: "0.85"
 
   # Off for measurement runs. See serving/entrypoint.sh for why: the corpora
   # replay, real traffic does not, and a cached replay would report a

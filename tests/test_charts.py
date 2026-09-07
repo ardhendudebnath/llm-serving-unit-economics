@@ -10,10 +10,10 @@ pytest.importorskip("matplotlib")
 from bench.report.charts import crossover_chart, latency_vs_load_chart
 
 GPU = GpuSpec(
-    key="test", name="Test GPU", vram_gb=12, market_usd_per_hour=1.0,
+    key="test", name="Test GPU", vram_mib=12_227, market_usd_per_hour=1.0,
     rate_read_on="2026-09-07", rate_source="fixture",
 )
-UNPRICED = GpuSpec(key="u", name="Unpriced", vram_gb=12, market_usd_per_hour=0.0)
+UNPRICED = GpuSpec(key="u", name="Unpriced", vram_mib=12_227, market_usd_per_hour=0.0)
 
 CAP = Capacity(
     gpu=GPU, profile="long_in", precision="fp16", knee_rps=2.0, slo_p95_s=5.0,
