@@ -229,7 +229,7 @@ python -m bench.report.build
 The dashboards run on CPU too:
 
 ```bash
-docker compose -f deploy/observability/docker-compose.yml up
+podman compose -f deploy/observability/docker-compose.yml up
 ```
 
 Rebuild the workload corpora from Project 01 (only needed if its data changes):
@@ -241,11 +241,16 @@ python -m bench.build_corpus --harness ../domain-eval-harness
 One GPU block, end to end — spin up, sweep, collect, destroy:
 
 ```bash
-docker run -d --gpus all -p 8000:8000 --shm-size 2g \
-  -e MODEL_ID=<model> -e PRECISION=fp16 \
-  llm-serving:latest
+# Weights live on the host, not in an engine-managed volume -- see
+# docs/setup.md for why that lesson was expensive.
+podman run -d --device nvidia.com/gpu=all -p 8000:8000 --shm-size 2g \
+  --env-file serving.env -v /opt/llm-models:/models \
+  localhost/llm-serving:local
 python -m bench.sweep --all-profiles --precision fp16 --slo 5.0
 ```
+
+`make serve ENGINE=docker` still works; the Dockerfile and manifests are
+engine-agnostic.
 
 The sweep checkpoints after every point, so a preempted spot instance loses one
 point rather than the run, and it stops climbing once p95 is 3× over the SLO

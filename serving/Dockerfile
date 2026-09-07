@@ -4,10 +4,18 @@
 # numbers attached to a configuration, and a floating base tag means a rerun
 # six months from now measures different software under the same commit.
 #
-# NOTE: confirm this tag exists on Docker Hub before a paid or metered run.
-# It follows vLLM's release convention and has not been pulled from this
-# machine -- there is no GPU here to pull it onto.
-FROM vllm/vllm-openai:v0.11.0
+# Verified 2026-09-07: this tag runs on sm_120 (Blackwell). torch 2.8.0+cu128,
+# sm_120 present in get_arch_list(), and an fp16 matmul launches on the card.
+#
+# **Fully qualified on purpose.** Podman has no implicit docker.io prefix and
+# refuses a short name outright:
+#
+#   short-name "vllm/vllm-openai:v0.11.0" did not resolve to an alias and no
+#   unqualified-search registries are defined
+#
+# Docker accepts the long form identically, so spelling out the registry is
+# what makes this Dockerfile work under both engines rather than one.
+FROM docker.io/vllm/vllm-openai:v0.11.0
 
 LABEL org.opencontainers.image.source="https://github.com/ardhendudebnath/llm-serving-unit-economics"
 LABEL org.opencontainers.image.description="vLLM serving one open-weight model for GST classification, instrumented for cost measurement"

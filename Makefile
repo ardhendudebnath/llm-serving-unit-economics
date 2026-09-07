@@ -8,22 +8,27 @@ BASE_URL ?= http://localhost:8000
 SLO ?= 5.0
 PRECISION ?= fp16
 
-# Container runtime. Docker Engine (docker-ce) is Apache 2.0 and free for any
-# use -- it is Docker *Desktop* that carries a subscription, and this project
-# does not use it. So this variable is about portability, not licensing.
+# Container runtime. Podman: daemonless, rootless-capable, and no licensing
+# question of any kind.
 #
-#   make serve ENGINE=podman
+#   make serve ENGINE=docker    # still works, nothing here is podman-only
 #
-# Podman accepts the same Dockerfile and the same run flags, with one
-# exception: GPUs come through the Container Device Interface rather than
-# --gpus. See GPU_FLAG below and docs/setup.md.
-ENGINE ?= docker
+# Podman takes the same Dockerfile and the same run flags with one exception:
+# GPUs arrive through the Container Device Interface rather than --gpus, so the
+# flag is switched below rather than hardcoded. See docs/setup.md.
+ENGINE ?= podman
 
-ifeq ($(ENGINE),podman)
-GPU_FLAG ?= --device nvidia.com/gpu=all
-else
+ifeq ($(ENGINE),docker)
 GPU_FLAG ?= --gpus all
+else
+GPU_FLAG ?= --device nvidia.com/gpu=all
 endif
+
+# Weights live on the host, not in an engine-managed volume. That was the
+# lesson from migrating off Docker: 7.5 GB sat inside a Docker volume and would
+# have been destroyed with it. A bind mount is portable across podman, docker
+# and the k3s PersistentVolume alike.
+MODELS_DIR ?= /opt/llm-models
 
 .PHONY: help test test-fast lint corpus sweep serve mock observability gate baseline charts clean
 
@@ -69,8 +74,26 @@ mock:
 serve:
 	$(ENGINE) build -t llm-serving:local serving/
 	$(ENGINE) run --rm -it $(GPU_FLAG) -p 8000:8000 --shm-size 2g \
-	  --env-file serving.env -v vllm-models:/models \
+	  --env-file serving.env -v $(MODELS_DIR):/models \
 	  llm-serving:local
+
+# ------------------------------------------------------------------ k3s ----
+
+# Apply the manifests to the local single-node cluster. This is the deployment
+# the project actually measures from Stage 4 onward; `serve` above is the
+# quicker loop for one-off checks.
+k8s-up:
+	kubectl apply -f deploy/k8s/
+
+k8s-down:
+	kubectl delete -f deploy/k8s/ --ignore-not-found
+
+k8s-status:
+	kubectl get pods,svc,pvc -o wide
+	kubectl describe pod -l app=vllm-server | sed -n '/Events:/,$$p'
+
+k8s-logs:
+	kubectl logs -l app=vllm-server --tail=50 -f
 
 # One GPU block: this is the whole measurement. Checkpoints after every point,
 # so an interruption loses one point rather than the run.
@@ -84,7 +107,7 @@ charts:
 # -------------------------------------------------------------- operate ----
 
 observability:
-	docker compose -f deploy/observability/docker-compose.yml up
+	$(ENGINE) compose -f deploy/observability/docker-compose.yml up
 
 # --------------------------------------------------------------- gating ----
 
