@@ -167,6 +167,52 @@ docker run --rm --gpus all ubuntu:24.04 nvidia-smi
 **1.20.0**, and the container reported
 `NVIDIA GeForce RTX 5070 Ti Laptop GPU, 12227 MiB, 595.79, 12.0`.
 
+### Docker Engine, not Docker Desktop — and what that costs
+
+Nothing. **Docker Desktop** is the product with a subscription (required for
+organisations over 250 employees or $10M revenue); **Docker Engine** is
+Apache 2.0 and free for any use including commercial. They get conflated
+constantly, and the conflation is why people reach for Podman on cost grounds.
+
+This project installs `docker-ce` from Docker's apt repo *inside WSL*, which is
+the open-source engine. Docker Desktop is not installed and is not needed:
+
+```bash
+dpkg -l docker-ce        # "Docker: the open-source application container engine"
+```
+
+### Podman instead, if you prefer
+
+Podman is a fine choice — daemonless, rootless by default — and nothing here
+locks you to Docker. The Dockerfile is a plain Dockerfile and `make` takes an
+engine:
+
+```bash
+make serve ENGINE=podman
+```
+
+One real difference: Podman exposes GPUs through the **Container Device
+Interface** rather than `--gpus`, so it needs a one-off
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+podman run --device nvidia.com/gpu=all ...
+```
+
+The Makefile substitutes that flag automatically when `ENGINE=podman`.
+
+The reason this project stayed on Docker is not preference: 7.5 GB of weights
+were already cached in a Docker volume, and switching runtimes means
+re-downloading them at ~4 MB/s. That is a real cost to fix a licensing problem
+that does not exist.
+
+### None of this survives into Stage 4 anyway
+
+Kubernetes is an orchestrator, not a container runtime — it runs containers
+*via* containerd or CRI-O. **k3s ships containerd**, so the k8s stage uses
+neither Docker nor Podman to run the pod. The container engine here matters
+only for local measurement runs.
+
 ---
 
 ## 3. Verify Blackwell before committing to anything
