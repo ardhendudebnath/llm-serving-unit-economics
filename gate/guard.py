@@ -113,8 +113,8 @@ def main() -> int:
             "\n  BLOCKED: no scored run attached.\n\n"
             "  CI has no GPU, so the eval cannot run here. Run it against the\n"
             "  new configuration on your own hardware and commit the result:\n\n"
-            "      NIM_BASE_URL=http://localhost:8000 \\\n"
-            "        python -m harness.run --model open-weight-local\n"
+            "      NIM_BASE_URL=http://localhost:8000 NIM_MODEL=<served id> \\\n"
+            "        python -m harness.run --model open-weight-vllm\n"
             "      cp <harness>/results/<run>.json results/eval/\n\n"
             "  Then push. The gate will compare it against gate/baseline.json.\n"
         )

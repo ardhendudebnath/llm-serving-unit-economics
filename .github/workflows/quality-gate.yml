@@ -180,7 +180,11 @@ jobs:
           NIM_BASE_URL: http://localhost:8000
         run: |
           python -m pip install --upgrade pip
-          python -m harness.run --model open-weight-local
+          # open-weight-vllm carries no pinned model id, so it takes the served
+          # id from NIM_MODEL -- which comes from the ConfigMap under test, so
+          # the run is scored against the model that would actually deploy.
+          export NIM_MODEL="$(grep -E '^SERVED_MODEL_NAME=' ../serving.env | cut -d= -f2-)"
+          python -m harness.run --model open-weight-vllm
           mkdir -p ../results/eval
           cp results/*.json ../results/eval/
 

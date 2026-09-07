@@ -255,7 +255,8 @@ Score the same server on Project 01's harness — same wire format, so only the
 base URL differs:
 
 ```bash
-NIM_BASE_URL=http://localhost:8000 python -m harness.run --model open-weight-local
+NIM_BASE_URL=http://localhost:8000 NIM_MODEL=<served id> \
+  python -m harness.run --model open-weight-vllm
 ```
 
 ---
