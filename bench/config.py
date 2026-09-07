@@ -143,6 +143,28 @@ def amortised_usd_per_hour(
     return capital_per_hour + energy_per_hour
 
 
+#: The model under test.
+#:
+#: Qwen3-4B-Instruct-2507, chosen against the measured 12 GB constraint rather
+#: than by reputation. `docs/models.md` records why, and what was rejected.
+#:
+#: **Non-thinking on purpose.** The hybrid-thinking Qwen3-4B emits its chain
+#: into a separate field that still bills as output tokens, which would inflate
+#: decode time and make the `long_in` profile measure reasoning rather than
+#: extraction. Project 01's prompt wants four labelled lines.
+MODEL_FAMILY = "Qwen3-4B-Instruct-2507"
+
+#: Architecture, read from the published config.json on 2026-09-07. These drive
+#: the KV-cache arithmetic below, so they are recorded rather than assumed.
+N_LAYERS = 36
+N_KV_HEADS = 8
+HEAD_DIM = 128
+#: The model supports 262,144 positions. Reserving for that would consume the
+#: entire card in KV cache for context the workload never sends -- the
+#: `long_in` corpus peaks near 1,800 tokens. See `kv_cache_gb()`.
+MAX_POSITIONS = 262_144
+
+
 @dataclass(frozen=True, slots=True)
 class Precision:
     """One rung of the quantisation ladder."""
@@ -150,31 +172,51 @@ class Precision:
     key: str
     #: What to pass vLLM as --quantization. None means native weights.
     vllm_quantization: str | None
-    #: Bytes per weight, for the VRAM estimate only. The measured peak is what
-    #: gets published; this exists to catch "that was never going to fit"
-    #: before renting anything.
-    bytes_per_weight: float
+    #: The pre-quantised checkpoint this rung is served from. int8 and int4 are
+    #: not runtime flags -- there is no converting an fp16 repo on the way in.
+    repo: str
+    #: Measured from the repo's safetensors on 2026-09-07, not derived from a
+    #: parameter count. This is the number that decides what fits.
+    weights_gb: float
+    #: dtype vLLM is told to use. "auto" honours the checkpoint.
+    dtype: str = "auto"
     note: str = ""
 
 
+#: **int8 and int4 come from one publisher, in one format, on purpose.**
+#: Mixing an AWQ community repo with a RedHatAI W8A8 would confound precision
+#: with quantisation methodology -- the ladder would be measuring "whoever
+#: quantised it" alongside the bit width, and the headline finding is supposed
+#: to be about the bit width.
 LADDER: dict[str, Precision] = {
     "fp16": Precision(
         key="fp16",
         vllm_quantization=None,
-        bytes_per_weight=2.0,
-        note="baseline; every quality delta is measured against this rung",
+        repo="Qwen/Qwen3-4B-Instruct-2507",
+        weights_gb=8.04,
+        # **The checkpoint is bfloat16, not float16.** Forcing float16 on
+        # BF16-trained weights narrows the exponent range and risks overflow in
+        # attention -- a real numerical difference, not a naming quibble. The
+        # rung is called "fp16" because the plan does, but what is served is
+        # 16-bit native, and the report says which.
+        dtype="bfloat16",
+        note="16-bit baseline; every quality delta is measured against it",
     ),
     "int8": Precision(
         key="int8",
         vllm_quantization="compressed-tensors",
-        bytes_per_weight=1.0,
-        note="W8A8; needs a pre-quantised checkpoint, not a runtime flag",
+        repo="RedHatAI/Qwen3-4B-Instruct-2507-quantized.w8a8",
+        weights_gb=5.19,
+        note="W8A8, INT8 weights and activations",
     ),
     "int4": Precision(
         key="int4",
-        vllm_quantization="awq",
-        bytes_per_weight=0.5,
-        note="AWQ; the rung the extraction task is expected to suffer on",
+        vllm_quantization="compressed-tensors",
+        repo="RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16",
+        weights_gb=3.43,
+        # Not AWQ. Same compressed-tensors format as the int8 rung above, from
+        # the same publisher, which is the whole point.
+        note="W4A16, INT4 weights; the rung extraction is expected to suffer on",
     ),
 }
 
@@ -196,12 +238,29 @@ def get_precision(key: str) -> Precision:
     return LADDER[key]
 
 
-def vram_estimate_gb(params_b: float, precision: str) -> float:
-    """Weights only, in GB. Deliberately excludes KV cache and activations.
+def kv_cache_gb(tokens: int) -> float:
+    """KV cache for `tokens` tokens, in GB, at 16-bit.
 
-    This is a go/no-go check before renting, not a capacity plan. The KV cache
-    is the thing that actually decides whether a context length fits, and it
-    depends on batch size and sequence length -- so it is measured, not
-    guessed. See `bench.metrics` for the measured figure.
+    2 (K and V) x kv_heads x head_dim x 2 bytes, per layer. For this model that
+    is 144 KiB per token, so a single 4,096-token sequence costs 0.60 GB --
+    which is why max sequence length and max batch size trade directly against
+    each other on a 12 GB card rather than being independent knobs.
     """
-    return params_b * get_precision(precision).bytes_per_weight
+    per_token = 2 * N_KV_HEADS * HEAD_DIM * 2 * N_LAYERS
+    return per_token * tokens / 1e9
+
+
+def concurrent_sequences(precision: str, context_len: int, gpu_key: str,
+                         *, gpu_memory_utilisation: float = 0.90) -> float:
+    """How many sequences of `context_len` fit alongside the weights.
+
+    An estimate, and labelled as one: it ignores activations, fragmentation and
+    vLLM's own bookkeeping, so the real figure is somewhat lower. Its job is to
+    catch a configuration that was never going to fit before a run starts, not
+    to replace the measured `peak_vram_mib` the sweep records.
+    """
+    budget = get_gpu(gpu_key).vram_gb * gpu_memory_utilisation
+    free = budget - get_precision(precision).weights_gb
+    if free <= 0:
+        return 0.0
+    return free / kv_cache_gb(context_len)
