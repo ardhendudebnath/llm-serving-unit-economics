@@ -36,23 +36,48 @@ Two consequences worth knowing before anything else:
 
 ## 1. WSL2
 
-vLLM is Linux-only. Windows needs WSL2, which needs admin and a reboot:
+vLLM is Linux-only, so Windows needs WSL2. This needs admin and a reboot.
+
+**Done on 2026-09-07:** WSL **2.7.13** (kernel 6.18.33.2, WSLg 1.0.73.2) is
+installed and `VirtualMachinePlatform` is enabled. Hardware virtualisation was
+already on in firmware, which is the usual blocker.
 
 ```powershell
-wsl --install
+wsl --install --no-launch
 ```
 
-After the reboot, confirm the GPU is visible *inside* WSL. This is the step
-that actually matters — WSL2 passes the GPU through via the Windows driver, and
-no separate Linux NVIDIA driver should be installed:
+`--no-launch` is not optional in an unattended run. A bare `wsl --install`
+installs Ubuntu *and launches it*, which blocks on an interactive "enter a new
+UNIX username" prompt — in an elevated window with nobody watching, it hangs.
+
+**A reboot is required before anything further works.** The registry carries
+`...\Component Based Servicing\RebootPending`, and until it clears, a
+distribution cannot register: `wsl --install Ubuntu-24.04` returns success and
+then `wsl -l -v` still reports no distributions.
+
+### After the reboot
+
+Ubuntu 24.04 — chosen because it is what NVIDIA's CUDA base images target, so
+the container toolchain lines up rather than needing to be argued with:
+
+```powershell
+wsl --install Ubuntu-24.04
+```
+
+That one *does* launch, and asks for a UNIX username and password. Set them.
+
+Then confirm the GPU is visible **inside** WSL. This is the step that actually
+matters — WSL2 passes the GPU through via the Windows driver, and no separate
+Linux NVIDIA driver should be installed. Installing one inside WSL is the
+classic way to break passthrough:
 
 ```bash
 nvidia-smi
 ```
 
-If that prints the 5070 Ti from inside WSL, passthrough works. If it does not,
-stop here — nothing below will work, and the usual cause is an out-of-date
-Windows NVIDIA driver rather than anything in WSL.
+Expect the 5070 Ti Laptop GPU with 12,227 MiB. If it does not appear, stop
+here — nothing below will work, and the usual cause is an out-of-date Windows
+NVIDIA driver rather than anything in WSL.
 
 ---
 
