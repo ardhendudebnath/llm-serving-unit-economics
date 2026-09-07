@@ -139,8 +139,22 @@ jobs:
           ref: 57d3bf7
           path: harness-repo
 
+      # ENGINE lets a GPU runner use whichever runtime it has. Podman needs
+      # GPUs through the Container Device Interface rather than --gpus, so the
+      # flag is derived rather than hardcoded -- same split as the Makefile.
+      - name: Pick the container engine
+        id: engine
+        run: |
+          if command -v podman >/dev/null 2>&1; then
+            echo "bin=podman"                        >> "$GITHUB_OUTPUT"
+            echo "gpu=--device=nvidia.com/gpu=all"   >> "$GITHUB_OUTPUT"
+          else
+            echo "bin=docker"                        >> "$GITHUB_OUTPUT"
+            echo "gpu=--gpus all"                    >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build the serving image
-        run: docker build -t vllm-under-test:${{ github.sha }} serving/
+        run: ${{ steps.engine.outputs.bin }} build -t vllm-under-test:${{ github.sha }} serving/
 
       # The container is started from the same ConfigMap the cluster uses, so
       # the thing being gated is the configuration that would actually deploy
@@ -159,10 +173,14 @@ jobs:
 
       - name: Start the server with the new configuration
         run: |
-          docker run -d --name vllm-under-test --gpus all -p 8000:8000 \
+          # Weights bind-mounted from the host, never an engine-managed volume:
+          # a volume is destroyed with its engine, and re-fetching 8 GB at
+          # ~4 MB/s inside a gate is half an hour of GPU time per run.
+          ${{ steps.engine.outputs.bin }} run -d --name vllm-under-test \
+            ${{ steps.engine.outputs.gpu }} -p 8000:8000 \
             --env-file serving.env \
             --shm-size 2g \
-            -v "$HOME/.cache/huggingface:/models" \
+            -v "${MODELS_DIR:-/opt/llm-models}:/models" \
             vllm-under-test:${{ github.sha }}
 
       # Matches the startup probe budget in deploy/k8s/deployment.yaml. If the
@@ -177,7 +195,7 @@ jobs:
             sleep 10
           done
           echo "server did not become ready in 10 minutes"
-          docker logs vllm-under-test | tail -50
+          ${{ steps.engine.outputs.bin }} logs vllm-under-test | tail -50
           exit 1
 
       - name: Score with Project 01's harness
@@ -201,4 +219,4 @@ jobs:
 
       - name: Stop the server
         if: always()
-        run: docker rm -f vllm-under-test || true
+        run: ${{ steps.engine.outputs.bin }} rm -f vllm-under-test || true

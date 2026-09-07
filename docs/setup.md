@@ -130,11 +130,73 @@ in WSL.
 
 ---
 
-## 2. Docker with GPU access
+## 2. Podman and k3s, with GPU access
 
-Docker CE **inside WSL** plus NVIDIA's container toolkit — not Docker Desktop.
-One less Windows-side install, and the daemon lives in the same place as
-everything else that touches the GPU.
+**Podman** for one-off runs, **k3s** for the deployment the project actually
+measures. Neither is Docker, and the migration off Docker is recorded at the
+end of this section.
+
+### The one thing to do before removing any runtime
+
+Model weights are large and slow to fetch — 16.7 GB across the three rungs at
+~4 MB/s. **Keep them outside whatever engine you are using.** They were
+originally in a Docker named volume, which would have been destroyed along with
+Docker; they now live at `/opt/llm-models` and are bind-mounted, which podman,
+docker and a k3s `hostPath` volume can all read.
+
+```bash
+cp -a /var/lib/docker/volumes/vllm-models/_data/. /opt/llm-models/
+```
+
+`-a` matters: HuggingFace's cache is a blobs directory plus a snapshot tree of
+symlinks into it. Copying without preserving links doubles the size and breaks
+deduplication.
+
+### Podman
+
+```bash
+apt-get install -y podman
+nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi
+```
+
+Two differences from Docker that will bite immediately:
+
+- **GPUs come through the Container Device Interface**, not `--gpus`. The
+  toolkit generates a spec describing the devices, and the flag becomes
+  `--device nvidia.com/gpu=all`.
+- **Podman refuses unqualified image names.** `vllm/vllm-openai:v0.11.0` fails
+  with *"short-name did not resolve to an alias and no unqualified-search
+  registries are defined"*. Fully qualify it as
+  `docker.io/vllm/vllm-openai:v0.11.0` — Docker accepts that form identically,
+  so the Dockerfile stays portable.
+
+**Verified 2026-09-07:** podman 4.9.3, CDI device `nvidia.com/gpu=all`, and a
+container reported `NVIDIA GeForce RTX 5070 Ti Laptop GPU, 12227 MiB, 12.0`.
+
+### k3s
+
+k3s ships **its own containerd**, which is why removing Docker's
+`containerd.io` was safe. It also detects `nvidia-container-runtime` at install
+time and writes a RuntimeClass for it — **provided the binary is on PATH before
+k3s installs.** That ordering is the whole trick; install the toolkit first.
+
+```bash
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik --disable servicelb" sh -
+```
+
+traefik and servicelb are disabled deliberately: this is a single-node
+measurement cluster reached over localhost, and an ingress controller only adds
+moving parts between the load generator and the thing being measured.
+
+### Why not Docker
+
+Not cost. **Docker Desktop** carries a subscription; **Docker Engine**
+(`docker-ce`) is Apache 2.0 and free for any use, and that is what was
+installed. The switch was a deliberate preference for a daemonless, rootless
+runtime plus the orchestrator the project needs from Stage 4 anyway — not a
+licensing fix. Anyone reproducing this can use either: `make serve ENGINE=docker`
+still works.
 
 **Enable systemd first.** WSL2 does not run it by default, and Docker's
 packaging ships a systemd unit rather than a SysV init script, so without this
