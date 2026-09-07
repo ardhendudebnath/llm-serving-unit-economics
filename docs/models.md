@@ -44,6 +44,32 @@ It also previews the ladder's mechanism: **int4 nearly triples concurrency**,
 because the VRAM it frees becomes KV cache. Any throughput gain is not just
 narrower arithmetic.
 
+### Measured, 2026-09-07 — the fp16 rung actually running
+
+The estimate above was made before anything was served. What vLLM reports on
+this card:
+
+| | Predicted | **Measured** |
+|---|---:|---:|
+| KV cache after weights | 2.71 GB | **2.32 GiB** |
+| Concurrent sequences at 4,096 tokens | ~4.7 | **4.12x** |
+| VRAM in use | — | 10,820 / 12,227 MiB |
+| KV cache capacity | — | 16,864 tokens |
+
+vLLM's own line: `Maximum concurrency for 4,096 tokens per request: 4.12x`.
+
+The prediction was optimistic by about 14 %, in exactly the direction
+`concurrent_sequences()` warns about in its docstring: it counts weights and
+KV cache but not activations, fragmentation or vLLM's bookkeeping. Close enough
+to have been worth computing before renting anything, wrong enough that the
+measured number is the one that gets published.
+
+Startup, with weights already on the host volume: engine init 58.6 s of which
+24 s was CUDA graph capture.
+
+A three-request smoke test on `long_in` returned 3/3 responses that parse under
+Project 01's exact parser, at 3.1–3.2 s each after the first (19.8 s cold).
+
 ### 2. The KV cache is what actually binds
 
 Read from `config.json`: 36 layers, 8 KV heads, head dim 128. So
