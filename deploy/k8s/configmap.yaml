@@ -16,7 +16,7 @@ data:
   MODEL_ID: "REPLACE_ME"
   SERVED_MODEL_NAME: "served-model"
 
-  PRECISION: "fp16"
+  PRECISION: "int4"
 
   # Sized to the workload, not to the model's architectural maximum. The
   # long_in corpus tops out near 40,000 characters; 8192 tokens covers it with
