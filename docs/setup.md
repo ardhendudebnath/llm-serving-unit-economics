@@ -132,13 +132,40 @@ in WSL.
 
 ## 2. Docker with GPU access
 
-Either Docker Desktop with the WSL2 backend, or Docker inside WSL plus
-NVIDIA's container toolkit. Verify with a container that has no relationship to
-this project, so a failure here is unambiguous:
+Docker CE **inside WSL** plus NVIDIA's container toolkit — not Docker Desktop.
+One less Windows-side install, and the daemon lives in the same place as
+everything else that touches the GPU.
+
+**Enable systemd first.** WSL2 does not run it by default, and Docker's
+packaging ships a systemd unit rather than a SysV init script, so without this
+`dockerd` has to be started by hand every session:
 
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi
+# /etc/wsl.conf, then `wsl --shutdown` and reopen
+[boot]
+systemd=true
 ```
+
+Then, as root (`wsl -d Ubuntu-24.04 --user root` — no password needed, which is
+how privileged setup happens without typing one into a script):
+
+- add Docker's apt repo with its key under `/etc/apt/keyrings`, install
+  `docker-ce docker-ce-cli containerd.io`
+- add NVIDIA's repo, install `nvidia-container-toolkit`
+- **`nvidia-ctk runtime configure --runtime=docker`**, then restart Docker.
+  Installing the toolkit is not enough on its own — without this step
+  `docker run --gpus all` fails with *"could not select device driver"*.
+- `usermod -aG docker <user>`, then `wsl --shutdown` before the group applies
+
+Verify with a container unrelated to this project, so a failure is unambiguous:
+
+```bash
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+```
+
+**Verified working, 2026-09-07:** Docker **29.8.0**, NVIDIA Container Toolkit
+**1.20.0**, and the container reported
+`NVIDIA GeForce RTX 5070 Ti Laptop GPU, 12227 MiB, 595.79, 12.0`.
 
 ---
 
