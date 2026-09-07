@@ -280,6 +280,43 @@ numbers nobody measured.
 
 ---
 
+## 4b. Stop WSL tearing the VM down under your server
+
+**Do this before starting anything long-running.** By default the WSL utility
+VM shuts down a few seconds after the last client session exits. That is
+harmless interactively and fatal here: every scripted `wsl -e ...` call that
+returns lets the VM tear down, taking `dockerd` and any detached container with
+it.
+
+The symptom is thoroughly misleading. A container started with `docker run -d`
+dies within about ten seconds, and the log ends with vLLM's SIGTERM handler:
+
+```
+KeyboardInterrupt: terminated
+```
+
+mid-way through loading the model. It reads exactly like the model failing to
+load — wrong architecture, bad checkpoint, out of memory. It is none of those.
+The tell is the daemon, not the container:
+
+```bash
+systemctl show docker --property=ActiveEnterTimestamp --value
+date
+```
+
+If `dockerd` started seconds ago, the VM was cycled and the container was
+collateral. Confirm with `uptime -p` reading "up 0 minutes" on every call.
+
+Fix it in `%USERPROFILE%\.wslconfig` (Windows side, not inside WSL):
+
+```ini
+[wsl2]
+vmIdleTimeout=-1
+```
+
+Then `wsl --shutdown` to apply. Verify by reading `ActiveEnterTimestamp` in two
+separate commands a few seconds apart — the timestamp must not change.
+
 ## 5. Run it
 
 ```bash

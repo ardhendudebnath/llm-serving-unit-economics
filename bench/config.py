@@ -38,10 +38,22 @@ class GpuSpec:
 
     key: str
     name: str
-    vram_gb: int
+    #: As nvidia-smi reports it, in MiB. Stored in the unit it was measured in
+    #: because "12 GB" is ambiguous by 7 % -- this card is 12,227 MiB, which is
+    #: 11.94 GiB or 12.82 GB depending on which you meant, and the difference
+    #: is larger than the margin that made vLLM refuse to start.
+    vram_mib: int
     #: On-demand rate for this class, in USD/hour. Zero means unread, and
     #: `priced()` will refuse to build a cost figure from it.
     market_usd_per_hour: float
+    #: Fraction of total VRAM that is actually available to a process.
+    #:
+    #: **Not 1.0, and assuming it is will cost you a failed start.** On this
+    #: laptop the GPU also drives the display under WDDM, and vLLM measures
+    #: free memory only after creating its own CUDA context. Measured: vLLM saw
+    #: 10.74 of 11.94 GiB free, so 0.90 utilisation -- 10.75 GiB -- failed by
+    #: 10 MiB, while nvidia-smi had reported 11,737 MiB free moments earlier.
+    usable_fraction: float = 1.0
     #: When the rate above was read, and from where. Both are printed in the
     #: report; a rate without a source is an assertion, not a measurement.
     rate_read_on: str = ""
@@ -52,6 +64,20 @@ class GpuSpec:
 
     def inr_per_hour(self) -> float:
         return self.market_usd_per_hour * USD_TO_INR
+
+    @property
+    def vram_gb(self) -> float:
+        """Total VRAM in decimal GB, to match the checkpoint sizes.
+
+        Repo sizes are byte counts divided by 1e9, so comparing them against a
+        GiB figure would understate what fits by 7 %.
+        """
+        return self.vram_mib * 1024 * 1024 / 1e9
+
+    @property
+    def usable_gb(self) -> float:
+        """What a process can actually claim. This is the number that binds."""
+        return self.vram_gb * self.usable_fraction
 
 
 #: Rates are deliberately left at 0.0 until read from a provider and dated.
@@ -76,7 +102,10 @@ GPUS: dict[str, GpuSpec] = {
     "rtx5070ti-laptop": GpuSpec(
         key="rtx5070ti-laptop",
         name="NVIDIA GeForce RTX 5070 Ti Laptop GPU",
-        vram_gb=12,
+        vram_mib=12_227,
+        # 10.74 of 11.94 GiB, measured by vLLM at startup on 2026-09-07 --
+        # not read from nvidia-smi, which reported considerably more free.
+        usable_fraction=0.90,
         market_usd_per_hour=0.0,
         obtained_via="owned hardware; see amortised_usd_per_hour()",
     ),
@@ -87,21 +116,21 @@ GPUS: dict[str, GpuSpec] = {
     "t4": GpuSpec(
         key="t4",
         name="NVIDIA T4",
-        vram_gb=16,
+        vram_mib=16_384,
         market_usd_per_hour=0.0,
         obtained_via="Colab / Kaggle free tier",
     ),
     "a10g": GpuSpec(
         key="a10g",
         name="NVIDIA A10G",
-        vram_gb=24,
+        vram_mib=24_576,
         market_usd_per_hour=0.0,
         obtained_via="rentable",
     ),
     "l4": GpuSpec(
         key="l4",
         name="NVIDIA L4",
-        vram_gb=24,
+        vram_mib=24_576,
         market_usd_per_hour=0.0,
         obtained_via="rentable",
     ),
@@ -250,16 +279,40 @@ def kv_cache_gb(tokens: int) -> float:
     return per_token * tokens / 1e9
 
 
+#: What deploy/k8s/configmap.yaml actually sets. Kept here so the estimate
+#: below describes the deployed configuration rather than a hopeful one.
+GPU_MEMORY_UTILISATION = 0.85
+
+
+def max_safe_utilisation(gpu_key: str) -> float:
+    """The highest `--gpu-memory-utilization` this card will actually accept.
+
+    vLLM reads that flag as a fraction of *total* VRAM and then refuses to
+    start if less than that is free, so the ceiling is `usable_fraction` --
+    not 1.0, and not whatever nvidia-smi reports free.
+    """
+    return get_gpu(gpu_key).usable_fraction
+
+
 def concurrent_sequences(precision: str, context_len: int, gpu_key: str,
-                         *, gpu_memory_utilisation: float = 0.90) -> float:
+                         *, gpu_memory_utilisation: float = GPU_MEMORY_UTILISATION
+                         ) -> float:
     """How many sequences of `context_len` fit alongside the weights.
 
     An estimate, and labelled as one: it ignores activations, fragmentation and
     vLLM's own bookkeeping, so the real figure is somewhat lower. Its job is to
     catch a configuration that was never going to fit before a run starts, not
     to replace the measured `peak_vram_mib` the sweep records.
+
+    Returns 0.0 for a utilisation the card cannot honour, because a
+    configuration that will not start has no capacity -- reporting a cheerful
+    sequence count for one would be worse than useless.
     """
-    budget = get_gpu(gpu_key).vram_gb * gpu_memory_utilisation
+    gpu = get_gpu(gpu_key)
+    if gpu_memory_utilisation > gpu.usable_fraction:
+        return 0.0
+
+    budget = gpu.vram_gb * gpu_memory_utilisation
     free = budget - get_precision(precision).weights_gb
     if free <= 0:
         return 0.0

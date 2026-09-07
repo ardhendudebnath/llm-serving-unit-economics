@@ -19,11 +19,37 @@ def test_no_gpu_ships_with_an_invented_rate():
 
 
 def test_the_local_card_is_recorded_as_measured_not_as_assumed():
-    # 12 GB, not the desktop 5070 Ti's 16. Read from nvidia-smi rather than
-    # from the model name, which is exactly the sort of thing that silently
-    # invalidates a VRAM plan.
+    # 12,227 MiB, not the desktop 5070 Ti's 16 GB. Read from nvidia-smi rather
+    # than from the model name, which is exactly the sort of thing that
+    # silently invalidates a VRAM plan.
     spec = get_gpu("rtx5070ti-laptop")
-    assert spec.vram_gb == 12
+    assert spec.vram_mib == 12_227
+
+
+def test_vram_is_stored_in_the_unit_it_was_measured_in():
+    """"12 GB" is ambiguous by 7 %, and the margin here is smaller than that.
+
+    12,227 MiB is 11.94 GiB or 12.82 GB depending on which was meant. The
+    checkpoint sizes are byte counts over 1e9, so the decimal reading is the
+    one that can be compared against them -- and getting it backwards would
+    understate what fits.
+    """
+    spec = get_gpu("rtx5070ti-laptop")
+    assert spec.vram_gb == pytest.approx(12.82, abs=0.01)
+    assert spec.vram_mib / 1024 == pytest.approx(11.94, abs=0.01)
+
+
+def test_usable_vram_is_less_than_total_and_that_is_recorded():
+    """The failure that cost a restart.
+
+    vLLM reads --gpu-memory-utilization as a fraction of *total* VRAM and then
+    refuses to start if less than that is free. On this card 0.90 failed by
+    10 MiB, because the display driver and vLLM's own CUDA context take a share
+    that nvidia-smi's "free" figure does not predict.
+    """
+    spec = get_gpu("rtx5070ti-laptop")
+    assert spec.usable_fraction < 1.0
+    assert spec.usable_gb < spec.vram_gb
 
 
 def test_an_8b_model_would_not_have_fitted_at_fp16():
