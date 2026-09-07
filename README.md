@@ -294,6 +294,11 @@ Written before the measurements, so none of it is retrofitted.
   span of each load point and flags any point where throttling was active;
   a flagged point's throughput is reported as a **floor**, not as the card's
   sustained rate.
+- **vLLM runs in WSL2, and says so itself.** It logs `Using 'pin_memory=False'
+  as WSL is detected. This may slow down the performance.` Host-to-device
+  transfers therefore cannot use pinned memory, which costs most on the
+  prefill-heavy `long_in` profile. Every throughput number here is a **floor**
+  relative to the same card on bare-metal Linux, and the gap is unmeasured.
 - **This card cannot be rented, which is a real problem for the cost curve.**
   No cloud offers a laptop 5070 Ti, so there is no provider rate to read.
   Pairing locally-measured throughput with some other card's hourly price would
