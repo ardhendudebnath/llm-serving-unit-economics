@@ -57,6 +57,42 @@ jobs:
       - name: Workload corpora are present and distinct
         run: python -m pytest tests/test_workloads.py -q
 
+  # The cross-repo guards only mean anything with Project 01 actually present.
+  # Run without it and they skip -- and a skipped guard is indistinguishable
+  # from a passing one in a CI summary, which is the failure this job exists to
+  # prevent.
+  #
+  # Requires the commit pinned in pyproject.toml to be pushed to
+  # gst-eval-harness. That is the point: if the pin names a commit that only
+  # exists on someone's laptop, this job says so loudly instead of the gate
+  # discovering it later on a GPU.
+  cross-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install with the pinned harness
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[eval]' pytest
+
+      - name: Project 01 and this repo agree
+        run: python -m pytest tests/test_cross_repo.py -q -rs
+
+      # Belt and braces: the tests above skip individually if the import
+      # fails, so this asserts the install actually produced the row.
+      - name: The pinned harness carries the row this project needs
+        run: |
+          python -c "
+          from harness.runners.registry import MODELS, get
+          spec = get('open-weight-vllm')
+          assert spec.model_id == '', 'model id must come from NIM_MODEL'
+          print('open-weight-vllm present in the pinned harness')
+          "
+
   lint:
     runs-on: ubuntu-latest
     steps:

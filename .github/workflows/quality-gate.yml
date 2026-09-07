@@ -130,7 +130,13 @@ jobs:
           repository: ardhendudebnath/gst-eval-harness
           # Pinned, not a branch. A gate whose baseline can move underneath it
           # is not a gate.
-          ref: 2300a1c
+          #
+          # 57d3bf7 is the first commit carrying the open-weight-vllm registry
+          # row. Anything earlier does not have it, and the scoring step below
+          # would fail with "unknown model key" rather than silently scoring
+          # something else -- which is the right failure, but this pin is what
+          # stops it happening at all.
+          ref: 57d3bf7
           path: harness-repo
 
       - name: Build the serving image
