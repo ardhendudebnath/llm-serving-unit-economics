@@ -8,6 +8,23 @@ BASE_URL ?= http://localhost:8000
 SLO ?= 5.0
 PRECISION ?= fp16
 
+# Container runtime. Docker Engine (docker-ce) is Apache 2.0 and free for any
+# use -- it is Docker *Desktop* that carries a subscription, and this project
+# does not use it. So this variable is about portability, not licensing.
+#
+#   make serve ENGINE=podman
+#
+# Podman accepts the same Dockerfile and the same run flags, with one
+# exception: GPUs come through the Container Device Interface rather than
+# --gpus. See GPU_FLAG below and docs/setup.md.
+ENGINE ?= docker
+
+ifeq ($(ENGINE),podman)
+GPU_FLAG ?= --device nvidia.com/gpu=all
+else
+GPU_FLAG ?= --gpus all
+endif
+
 .PHONY: help test test-fast lint corpus sweep serve mock observability gate baseline charts clean
 
 help:
@@ -50,9 +67,9 @@ mock:
 	$(PY) -m tests.mock_server --port 8099
 
 serve:
-	docker build -t llm-serving:local serving/
-	docker run --rm -it --gpus all -p 8000:8000 --shm-size 2g \
-	  --env-file serving.env -v "$$HOME/.cache/huggingface:/models" \
+	$(ENGINE) build -t llm-serving:local serving/
+	$(ENGINE) run --rm -it $(GPU_FLAG) -p 8000:8000 --shm-size 2g \
+	  --env-file serving.env -v vllm-models:/models \
 	  llm-serving:local
 
 # One GPU block: this is the whole measurement. Checkpoints after every point,
