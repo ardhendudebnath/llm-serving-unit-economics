@@ -55,6 +55,36 @@ UNIX username" prompt — in an elevated window with nobody watching, it hangs.
 distribution cannot register: `wsl --install Ubuntu-24.04` returns success and
 then `wsl -l -v` still reports no distributions.
 
+### It has to be a *Restart*, not a shutdown
+
+Windows Fast Startup (`HiberbootEnabled=1`, the default) means **"Shut down"
+followed by pressing the power button is not a reboot.** It hibernates the
+kernel session and resumes it, so pending servicing operations never complete —
+`RebootPending` stays set, `LastBootUpTime` never moves, and WSL still reports:
+
+```
+WSL2 is unable to start since virtualization is not enabled on this machine.
+```
+
+which sends you hunting through BIOS settings for a problem that is not there.
+
+Use **Restart**, which always performs a full boot, or from a terminal:
+
+```powershell
+shutdown /r /t 0
+```
+
+**Do not trust `VirtualizationFirmwareEnabled` when diagnosing this.** It reads
+`False` whenever Windows is itself running under a hypervisor — which it is, if
+Virtualization-based Security is on. The reliable check is:
+
+```powershell
+systeminfo | Select-String "Hyper-V Requirements"
+```
+
+`A hypervisor has been detected` means firmware virtualisation is **on** and the
+problem is elsewhere.
+
 ### After the reboot
 
 Ubuntu 24.04 — chosen because it is what NVIDIA's CUDA base images target, so
