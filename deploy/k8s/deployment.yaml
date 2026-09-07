@@ -86,12 +86,20 @@ spec:
           # suppresses liveness and readiness entirely until the model has
           # loaded, so neither of them needs a long initialDelaySeconds.
           #
-          # Budget: 60 x 10s = 10 minutes. Sized from the slowest realistic
-          # cold start -- weights already on the PVC, but CUDA graph capture
-          # and KV cache profiling still to do -- with roughly 3x headroom. A
-          # first-ever start that downloads weights will exceed this and the
-          # pod will CrashLoop, which is the correct outcome: it is visible,
-          # rather than a pod that silently takes 40 minutes to appear.
+          # Budget: 60 x 10s = 10 minutes. Sized for a start where the weights
+          # are already on the PVC and only CUDA graph capture and KV cache
+          # profiling remain.
+          #
+          # **Measured 2026-09-07: a first-ever start blows straight through
+          # this, and that is the intended behaviour.** Pulling the 8.04 GB
+          # fp16 checkpoint ran at ~3.9 MB/s, so the download alone is ~35
+          # minutes; this probe failed at 10 while the container sat healthy
+          # and still downloading. The pod CrashLoops, which is visible, rather
+          # than appearing to hang for forty minutes with no signal.
+          #
+          # The fix is not a longer budget -- it is to warm the volume once, so
+          # the assumption above holds. That gap, ~35 minutes cold against ~90
+          # seconds warm, is the entire justification for the PVC.
           startupProbe:
             httpGet:
               path: /health
