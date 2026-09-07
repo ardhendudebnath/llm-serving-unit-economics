@@ -91,23 +91,42 @@ Ubuntu 24.04 — chosen because it is what NVIDIA's CUDA base images target, so
 the container toolchain lines up rather than needing to be argued with:
 
 ```powershell
-wsl --install Ubuntu-24.04
+wsl --install Ubuntu-24.04 --no-launch
 ```
 
-That one *does* launch, and asks for a UNIX username and password. Set them.
-
 Then confirm the GPU is visible **inside** WSL. This is the step that actually
-matters — WSL2 passes the GPU through via the Windows driver, and no separate
-Linux NVIDIA driver should be installed. Installing one inside WSL is the
+matters — WSL2 passes the GPU through via the Windows driver, and **no separate
+Linux NVIDIA driver should be installed.** Installing one inside WSL is the
 classic way to break passthrough:
 
 ```bash
-nvidia-smi
+wsl -d Ubuntu-24.04 -e nvidia-smi
 ```
 
-Expect the 5070 Ti Laptop GPU with 12,227 MiB. If it does not appear, stop
-here — nothing below will work, and the usual cause is an out-of-date Windows
-NVIDIA driver rather than anything in WSL.
+**Verified working, 2026-09-07:**
+
+| | |
+|---|---|
+| Distro | Ubuntu 24.04.4 LTS |
+| Kernel | 6.18.33.2-microsoft-standard-WSL2 |
+| GPU | RTX 5070 Ti Laptop, 12,227 MiB, driver 595.79, compute cap 12.0 |
+| Passthrough | `libcuda.so` present under `/usr/lib/wsl/lib/` |
+| Host | 24 cores, 15 GB RAM, 955 GB free |
+
+A distribution installed with `--no-launch` has no UNIX user configured, so it
+runs as **root** until one is created. That is fine for the checks above and
+for Docker, but create a normal user before doing real work:
+
+```bash
+wsl -d Ubuntu-24.04
+```
+
+The first launch prompts for a username and password interactively — which is
+why it is a manual step rather than part of any script here.
+
+If `nvidia-smi` does not print the card, stop — nothing below will work, and
+the usual cause is an out-of-date Windows NVIDIA driver rather than anything
+in WSL.
 
 ---
 
