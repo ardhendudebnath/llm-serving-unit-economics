@@ -177,18 +177,47 @@ CUDA 12.8+ with a PyTorch that supports Blackwell. The pinned tag in
 `serving/Dockerfile` follows vLLM's release convention and **has not been
 pulled or run** — there is no GPU on the machine this repo was written on.
 
-Check the toolchain sees the card before checking vLLM:
+**`--entrypoint python3` is required.** The vLLM image sets its ENTRYPOINT to
+the OpenAI API server, so `docker run IMAGE python3 -c "..."` appends those
+arguments to *the server* and dies with `api_server.py: error: unrecognized
+arguments: -c`. That looks like a broken image and is nothing of the kind.
 
 ```bash
-docker run --rm --gpus all vllm/vllm-openai:v0.11.0 \
-  python3 -c "import torch; print(torch.__version__, torch.cuda.get_device_capability())"
+docker run --rm --gpus all --entrypoint python3 vllm/vllm-openai:v0.11.0 -c "
+import torch
+print(torch.__version__, torch.cuda.get_device_capability(0))
+print(torch.cuda.get_arch_list())
+"
 ```
 
-Expect `(12, 0)`. A `no kernel image is available for execution on the device`
-error means that build predates Blackwell support — move the pin in
-`serving/Dockerfile` forward to a release built on CUDA 12.8 or later, and
-record which one worked. That version pin is part of what the measurements
-mean, so it belongs in the commit message.
+**Reading the capability alone is not enough.** `get_device_capability()`
+returning `(12, 0)` only says the driver reports the card; it says nothing
+about whether kernels were compiled for it. Two things settle it: `sm_120`
+appearing in `get_arch_list()`, and a kernel actually launching:
+
+```bash
+docker run --rm --gpus all --entrypoint python3 vllm/vllm-openai:v0.11.0 -c "
+import torch
+a = torch.randn(2048, 2048, device='cuda', dtype=torch.float16)
+print('ok', (a @ a).float().abs().sum().item())
+"
+```
+
+**Verified working, 2026-09-07** — `vllm/vllm-openai:v0.11.0` runs on this card:
+
+| | |
+|---|---|
+| torch | 2.8.0+cu128 |
+| CUDA runtime | 12.8 |
+| Device | RTX 5070 Ti Laptop GPU, capability (12, 0) |
+| Compiled arches | `sm_70 sm_75 sm_80 sm_86 sm_90 sm_100 **sm_120**` |
+| Kernel launch | fp16 matmul on device — OK |
+| vLLM | 0.11.0 |
+
+So the pin in `serving/Dockerfile` stands. Had it failed with `no kernel image
+is available for execution on the device`, the fix would have been to move that
+pin forward to a release built on CUDA 12.8 or later and record which one
+worked — the version is part of what the measurements mean.
 
 ---
 
