@@ -28,7 +28,7 @@ charts = [
 # The quality gate scores against Project 01. Pinned to a commit, not a branch:
 # a gate whose baseline can move underneath it is not a gate.
 eval = [
-    "gst-eval-harness @ git+https://github.com/ardhendudebnath/gst-eval-harness.git@57d3bf7",
+    "gst-eval-harness @ git+https://github.com/ardhendudebnath/gst-eval-harness.git@06053d6",
 ]
 dev = [
     "pytest>=8.0",

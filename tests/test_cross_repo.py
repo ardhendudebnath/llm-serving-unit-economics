@@ -98,6 +98,26 @@ def test_the_self_hosted_row_carries_no_per_token_price():
     assert not registry.priced(registry.get(REQUIRED_KEY))
 
 
+def test_the_row_caps_its_output_tokens():
+    """Without this cap every request to our server is rejected outright.
+
+    The harness defaults to a 16,384-token output budget, which is fine for a
+    hosted model and impossible here: this deployment runs a 4,096-token
+    context because KV cache costs 144 KiB per token on a 12 GB card. vLLM
+    answers `http_400: 'max_tokens' is too large`, every row errors, and the
+    run reports 0.0 % as though the model had failed rather than as though
+    nothing was ever asked of it.
+
+    Pinned because that failure is silent in the worst way -- the harness exits
+    zero and prints a plausible score.
+    """
+    cap = _registry().get(REQUIRED_KEY).max_output_tokens
+    assert cap, "open-weight-vllm must cap output tokens"
+    # Must fit inside MAX_MODEL_LEN alongside the longest golden input, which
+    # runs to roughly 2,000 tokens.
+    assert 0 < cap <= 2048
+
+
 def test_the_currency_conversion_matches_project_01():
     """Both repos report rupee figures for the same deployment.
 
