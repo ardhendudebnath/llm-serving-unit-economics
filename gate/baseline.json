@@ -1,0 +1,94 @@
+{
+  "model": "gst-4b",
+  "precision": "fp16",
+  "dataset_sha": "8c32ff29e970115f61c4da5d778dc9e38379ed7502e9f4aa50b35e487ddb95ee",
+  "prompt_version": "v1",
+  "recorded_at": "2026-09-08",
+  "n_repeats": 5,
+  "scores": {
+    "slab_acc": 0.41432,
+    "hsn_acc": 0.62858,
+    "chapter_acc": 0.70002,
+    "abstention_acc": 1.0,
+    "stale_slab_rate": 0.04998,
+    "stale_cited_rate": 0.05712,
+    "unparseable": 0.0,
+    "errored": 0.0
+  },
+  "noise": {
+    "slab_acc": 3.57,
+    "hsn_acc": 3.58,
+    "chapter_acc": 3.57,
+    "abstention_acc": 0.0,
+    "stale_slab_rate": 3.57,
+    "stale_cited_rate": 3.57,
+    "unparseable": 0.0,
+    "errored": 0.0
+  },
+  "observed_per_run": {
+    "slab_acc": [
+      42.86,
+      42.86,
+      39.29,
+      39.29,
+      42.86
+    ],
+    "hsn_acc": [
+      64.29,
+      64.29,
+      60.71,
+      60.71,
+      64.29
+    ],
+    "chapter_acc": [
+      71.43,
+      71.43,
+      67.86,
+      67.86,
+      71.43
+    ],
+    "abstention_acc": [
+      100.0,
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ],
+    "stale_slab_rate": [
+      3.57,
+      3.57,
+      7.14,
+      7.14,
+      3.57
+    ],
+    "stale_cited_rate": [
+      7.14,
+      3.57,
+      7.14,
+      7.14,
+      3.57
+    ],
+    "unparseable": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "errored": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "source_runs": [
+    "20260908T160730Z_open-weight-vllm_shared.json",
+    "20260908T160930Z_open-weight-vllm_shared.json",
+    "20260908T161130Z_open-weight-vllm_shared.json",
+    "20260908T161330Z_open-weight-vllm_shared.json",
+    "20260908T161533Z_open-weight-vllm_shared.json"
+  ],
+  "note": "fp16 baseline: Qwen3-4B-Instruct-2507 on RTX 5070 Ti Laptop, vLLM 0.11.0, greedy, max_model_len 4096"
+}
