@@ -130,6 +130,7 @@ def sweep_one(
     warmup_s: float,
     out: Path,
     seed: int = 0,
+    cooldown_s: float = 0.0,
 ) -> SweepState:
     corpus = workloads.load(profile)
     checkpoint = out / f"sweep_{profile}_{precision}.json"
@@ -153,6 +154,27 @@ def sweep_one(
     for rate in rates:
         if rate in already:
             continue
+
+        # Let the card return to a comparable power state before the next
+        # point.
+        #
+        # **Needed on a power-capped GPU, and its absence produced a wrong
+        # measurement.** The first fp16 sweep ran points back to back and the
+        # `short` profile came out non-monotonic: p50 16.07 s at 1 rps but
+        # 8.75 s at 2 rps, with mean SM clock 0.59 and 0.68 of maximum
+        # respectively. On a card held under SW Power Cap for the entire sweep,
+        # each point inherits the thermal and power state the previous one left
+        # behind, so consecutive points are not independent samples of the same
+        # system.
+        #
+        # Zero by default, because on a datacentre card with headroom this only
+        # wastes time.
+        if cooldown_s > 0 and state.points:
+            print(f"    cooling {cooldown_s:g}s before the next point", flush=True)
+            time.sleep(cooldown_s)
+            if (idle := gpu.sample_once()) is not None:
+                print(f"    settled at {idle.temperature_c:.0f}C, "
+                      f"clock {idle.clock_ratio:.0%} of max", flush=True)
 
         cfg = RunConfig(
             base_url=base_url, model=model, profile=profile, rate_rps=rate,
@@ -227,6 +249,10 @@ def main() -> int:
     ap.add_argument("--model", default="")
     ap.add_argument("--out", type=Path, default=Path("results/sweeps"))
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--cooldown", type=float, default=0.0,
+                    help="idle seconds between load points. On a power-capped "
+                         "card, consecutive points are not independent -- each "
+                         "inherits the previous one's thermal and power state")
     args = ap.parse_args()
 
     if not args.profile and not args.all_profiles:
@@ -252,6 +278,7 @@ def main() -> int:
             base_url=args.base_url, model=model, precision=args.precision,
             slo_p95_s=args.slo, rates=rates, duration_s=args.duration,
             warmup_s=args.warmup, out=args.out, seed=args.seed,
+            cooldown_s=args.cooldown,
         )
         results.append(state)
 

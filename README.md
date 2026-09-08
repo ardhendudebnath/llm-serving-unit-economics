@@ -292,13 +292,28 @@ Written before the measurements, so none of it is retrofitted.
   model needs ~16 GB of fp16 weights before any KV cache, so it does not fit;
   the fp16 rung is the baseline every quality delta is measured against, so the
   model is sized to keep it rather than starting the ladder at int8.
-- **It is a laptop GPU, and laptop GPUs throttle.** Under sustained load a
-  laptop card holds boost clocks briefly and then drops, so a 120-second run at
-  a high arrival rate can end up measuring the cooling system. `bench/gpu.py`
-  samples clocks, temperature and NVML's throttle-reason bits for exactly the
-  span of each load point and flags any point where throttling was active;
-  a flagged point's throughput is reported as a **floor**, not as the card's
-  sustained rate.
+- **The card is power-capped, and it changes the measurement, not just the
+  numbers.** Measured: SW Power Cap was active for essentially every sample of
+  every load point, with mean SM clock at **29–82 % of the rated 3,090 MHz**.
+  It is *power*-limited rather than thermally limited — peak temperature was
+  81 °C, well inside spec, and the limit is already raised to its 140 W
+  maximum. Every throughput figure here is therefore a **floor**.
+
+  The consequence is worse than slow numbers: **consecutive load points are not
+  independent measurements.** Each inherits the power state the previous one
+  left behind. Run back to back, the `short` profile produced a p95 of 37.5 s
+  at 2 rps; with 60 s of idle between points it produced **1.36 s at the same
+  rate**, a 27× difference, and the curve stopped being non-monotonic.
+
+  So sweeps use `--cooldown`, and the reason is not tidiness. A knee is a curve
+  *across* rates, and a curve is only meaningful if each point measures the
+  same system. The honest caveat is that a cooled point measures burst-from-idle
+  performance, which flatters a server that in production never gets to cool
+  down — characterising sustained throughput needs a separate long steady-state
+  run at a fixed rate, and that is a different measurement from the knee.
+
+  Both versions are kept under `results/sweeps/contaminated/` rather than
+  deleted, because the difference between them is itself a finding.
 - **vLLM runs in WSL2, and says so itself.** It logs `Using 'pin_memory=False'
   as WSL is detected. This may slow down the performance.` Host-to-device
   transfers therefore cannot use pinned memory, which costs most on the
