@@ -119,9 +119,15 @@ spec:
           # than appearing to hang for forty minutes with no signal.
           #
           # The fix is not a longer budget -- it is to warm the volume once, so
-          # the assumption above holds. That gap, ~35 minutes cold against ~90
-          # seconds warm, is the entire justification for mounting weights from
-          # the host rather than letting each pod fetch its own.
+          # the assumption above holds.
+          #
+          # **Warm start measured 2026-09-08: 122 seconds**, container start to
+          # /health passing, of which 64 s was engine init and 27 s of that was
+          # CUDA graph capture. Against ~35 minutes cold, that gap is the whole
+          # justification for mounting weights from the host rather than
+          # letting each pod fetch its own -- and it means this 10-minute
+          # budget clears a warm start by roughly 5x while still failing a cold
+          # one, which is exactly the behaviour wanted.
           startupProbe:
             httpGet:
               path: /health
