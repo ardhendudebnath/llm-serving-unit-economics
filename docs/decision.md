@@ -29,7 +29,11 @@ irrelevant and the answer is "API", at any volume. On a task where the current
 frontier reference scores ~54 % slab accuracy with a 14-point run-to-run
 spread, this is a live possibility rather than a formality.
 
-> Measured: *pending.*
+> Measured, fp16 only so far: Qwen3-4B-Instruct-2507 scores **41.4 %** slab
+> accuracy (39.3–42.9 % over five runs), against about 54 % for the frontier
+> reference. Whether a gap of about 13 points is acceptable depends on the
+> task, not the server. It has to be settled before the cost comparison means
+> anything. int8 and int4: *pending.*
 
 ### 2. What is the volume, and where is the crossover?
 
@@ -40,7 +44,14 @@ Below the crossover the GPU is mostly idle and you are paying for silicon that
 is not working. Above it, marginal cost per request approaches the GPU rate
 divided by capacity, which is where self-hosting wins decisively.
 
-> Crossover: *pending.*
+> Capacity, measured: one card serves `long_in` at **2 rps** within a 10 s
+> p95. If traffic were perfectly flat, that is 5.26 M requests a month. The
+> floor cost at full utilisation is **₹1.48 per 1000 requests**, from the
+> laptop's ₹10.63 amortised hour.
+>
+> Crossover: *pending*, until an API model of matched quality is chosen and
+> scored. Comparing against an API model that scores 13 points higher would
+> price two different products.
 
 ### 3. How bursty is the traffic?
 
