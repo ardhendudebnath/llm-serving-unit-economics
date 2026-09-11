@@ -257,8 +257,8 @@ pending.
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
 python -m pip install -e '.[dev,load,charts]'
-python -m pytest tests -q                 # 187 tests, no GPU
-python -m pytest tests -q -m "not e2e"    # 173 of them, in 3 seconds
+python -m pytest tests -q                 # 201 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 187 of them, in about 10 seconds
 ```
 
 **The whole toolchain runs without a GPU.** `tests/mock_server.py` speaks vLLM's
@@ -292,7 +292,8 @@ One GPU block, end to end — spin up, sweep, collect, destroy:
 podman run -d --device nvidia.com/gpu=all -p 8000:8000 --shm-size 2g \
   --env-file serving.env -v /opt/llm-models:/models \
   localhost/llm-serving:local
-python -m bench.sweep --all-profiles --precision fp16 --slo 5.0
+python -m bench.sweep --all-profiles --precision fp16 --slo 10 \
+  --duration 150 --warmup 15 --cooldown 60
 ```
 
 `make serve ENGINE=docker` still works; the Dockerfile and manifests are
@@ -381,6 +382,13 @@ Written before the measurements, so none of it is retrofitted.
   cycle as well would count the idle hours twice. An early version made exactly
   that mistake. The crossover now uses the around-the-clock rate, and a test
   holds it there.
+- **The API side is charged the self-hosted model's token counts.** The
+  crossover prices each API request at the input and output tokens vLLM
+  counted for Qwen3-4B. The API model's own tokenizer counts the same text
+  differently, and neither the size nor the direction of that gap is measured,
+  so the API line could sit somewhat higher or lower. Scoring the API model on
+  Project 01 would record its real token usage on the same prompts and close
+  the gap.
 
 ---
 
