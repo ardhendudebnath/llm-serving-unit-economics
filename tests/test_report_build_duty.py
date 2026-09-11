@@ -1,8 +1,10 @@
-"""The report draws one crossover chart per duty cycle for owned hardware.
+"""The report prices owned hardware once, around the clock -- not per duty cycle.
 
-An owned laptop has no single hourly price -- the rate moves about 11x across
-the duty cycles -- so a report that drew one chart would be publishing one
-silently chosen assumption as the result.
+An earlier version drew one crossover chart per duty cycle, each priced at that
+duty cycle's cost per serving hour. The crossover already bills the card for
+every hour of the month and shows idle time as utilisation, so those charts
+counted the idle hours twice and would have put the 2 h/day crossover about 11x
+too high. These tests hold the corrected behaviour.
 """
 
 from __future__ import annotations
@@ -41,10 +43,10 @@ def drawn(tmp_path, monkeypatch):
         json.dumps(_long_in_sweep()), encoding="utf-8"
     )
 
-    calls: list[tuple[str, object, str | None]] = []
+    calls: list[tuple[str, object]] = []
 
     def fake_crossover(cap, api, out_path, **kw):
-        calls.append((out_path.name, cap, kw.get("title")))
+        calls.append((out_path.name, cap))
         return out_path
 
     monkeypatch.setattr(build, "crossover_chart", fake_crossover)
@@ -62,23 +64,27 @@ def drawn(tmp_path, monkeypatch):
     return run
 
 
-def test_owned_hardware_gets_one_chart_per_duty_cycle(drawn):
-    calls = drawn(LAPTOP.gpu_key)
-    assert [name for name, _, _ in calls] == [
-        "crossover-24h.png", "crossover-8h.png", "crossover-2h.png"
-    ]
+def test_owned_hardware_gets_exactly_one_crossover_chart(drawn):
+    assert [name for name, _ in drawn(LAPTOP.gpu_key)] == ["crossover.png"]
 
 
-def test_each_chart_is_priced_at_its_own_duty_cycle(drawn):
-    calls = drawn(LAPTOP.gpu_key)
-    for (_, cap, title), (label, duty) in zip(calls, DUTY_CYCLES.items(), strict=True):
-        assert priced(cap.gpu)
-        assert cap.gpu.market_usd_per_hour == pytest.approx(LAPTOP.usd_per_hour(duty))
-        # The duty cycle is on the chart, not only in the filename.
-        assert label in title
+def test_the_chart_is_priced_around_the_clock_with_the_measured_knee(drawn):
+    (_, cap), = drawn(LAPTOP.gpu_key)
+    assert priced(cap.gpu)
+    assert cap.gpu.market_usd_per_hour == pytest.approx(LAPTOP.usd_per_serving_hour(1.0))
+    # The measured knee, unscaled: idle time is expressed through utilisation,
+    # not by shrinking capacity or inflating the rate.
+    assert cap.knee_rps == 2.0
+
+
+def test_no_partial_duty_cycle_rate_reaches_the_chart(drawn):
+    (_, cap), = drawn(LAPTOP.gpu_key)
+    for label, duty in DUTY_CYCLES.items():
+        if duty < 1.0:
+            assert cap.gpu.market_usd_per_hour != pytest.approx(
+                LAPTOP.usd_per_serving_hour(duty)
+            ), f"crossover priced at the {label} serving-hour rate"
 
 
 def test_an_unpriced_rentable_gpu_draws_no_crossover(drawn):
-    # A rentable card with no rate read from a provider is refused rather than
-    # drawn from an invented number.
     assert drawn("t4") == []
