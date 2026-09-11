@@ -266,12 +266,30 @@ def markdown(result: GateResult) -> str:
     b = result.baseline
     head = "### Quality gate: " + ("**passed**" if result.passed else "**blocked**")
 
+    # Name the candidate and the baseline separately. A result file records
+    # which model answered but not at what precision, so the only precision
+    # this line can truthfully state is the baseline's. The earlier wording put
+    # the candidate's name next to the baseline's precision, which rendered an
+    # int8 run as "gst-4b-int8 at fp16" -- wrong in exactly the cross-precision
+    # comparison the quantisation ladder uses the gate for.
+    #
+    # A missing served id is said to be missing. Falling back to the baseline's
+    # model name would attribute an unknown run to the baseline configuration.
+    candidate = result.candidate_meta.get("served_model_id") or ""
+    if not candidate:
+        who = f"unrecorded model against the **{b.precision}** baseline (`{b.model}`)"
+    elif candidate == b.model:
+        who = f"`{candidate}` at **{b.precision}**, against its own baseline"
+    else:
+        who = f"`{candidate}` against the **{b.precision}** baseline (`{b.model}`)"
+
     lines = [
         head,
         "",
         (
-            f"`{result.candidate_meta.get('served_model_id') or b.model}` at "
-            f"**{b.precision}** · dataset `{b.dataset_sha}` "
+            # 12 characters of the SHA, as Project 01's README quotes it. The
+            # full 64 identify nothing more for a reader and wrap the line.
+            f"{who} · dataset `{b.dataset_sha[:12]}` "
             f"({result.candidate_meta.get('dataset_n', '?')} rows) · "
             f"prompt `{b.prompt_version}`"
         ),
