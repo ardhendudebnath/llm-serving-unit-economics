@@ -9,16 +9,15 @@ classifying Indian goods into the GST slab that is *currently* in force, after
 two restructures in under two years. That project scores quality. This one adds
 latency and cost, so all three sit in the same frame.
 
-> **Status: build complete, nothing measured yet (week 1 of 6).**
+> **Status: fp16 measured; int8 and int4 in progress (week 1 of 6).**
 >
-> Every number in this README is absent rather than estimated. There is no
-> headline, no crossover point and no quantisation table, because no model has
-> been served yet. The tooling below is built, tested and linted; the GPU hours
-> have not been spent.
+> The fp16 rung has been served, load-tested on all three workload profiles and
+> scored five times on Project 01's harness. Its numbers are below. The int8 and
+> int4 rungs, the crossover chart and the headline are still absent rather than
+> estimated.
 >
-> This section will stay here, saying exactly this, until a measurement
-> replaces it. Project 01 holds the same line and it is the reason its numbers
-> are worth reading.
+> This section will keep saying what is missing until nothing is. Project 01
+> holds the same line, and it is the reason its numbers are worth reading.
 
 ---
 
@@ -42,13 +41,58 @@ as the finding.
 
 ## Measurements
 
-| | Status |
-|---|---|
-| Latency vs load, by workload profile | not run |
-| Quantisation ladder: fp16 / int8 / int4 | not run |
-| Quality per precision, scored on Project 01's harness | not run |
-| Cost per 1000 requests, self-hosted vs API | not run |
-| GPU utilisation at each point | not run |
+| | fp16 | int8 | int4 |
+|---|---|---|---|
+| Latency vs load, three workload profiles | measured | not run | not run |
+| Quality on Project 01's harness, five runs | measured | not run | not run |
+| GPU utilisation and throttling at each point | measured | not run | not run |
+| Cost per 1000 requests, self-hosted vs API | not charted | — | — |
+
+### fp16: capacity at a p95 of 10 s
+
+Qwen3-4B-Instruct-2507 at 16-bit (BF16) on vLLM 0.11.0, one RTX 5070 Ti Laptop
+GPU, `max_model_len` 4096, 16 sequences, prefix caching off. Each load point
+runs 150 s of Poisson arrivals, with 60 s of idle between points. The knee is
+the highest arrival rate whose p95 still meets the SLO.
+
+| Profile | Knee | p95 at the knee | GPU util at the knee | The next rate up |
+|---|---:|---:|---:|---|
+| `short` | **8 rps** | 1.78 s | 94 % | 16 rps: p95 46.7 s, but the load generator fell 21.9 s behind schedule, so that point measures the client as much as the server |
+| `long_in` | **2 rps** | 4.82 s | 90 % | 4 rps: served only 1.65 rps, p95 209.7 s |
+| `long_out` | **none** | — | — | even 0.1 rps has a p95 of 22.3 s |
+
+- **`long_in` has no gentle slope.** p95 goes 1.64 → 1.91 → 2.48 → 4.82 s as
+  the rate doubles from 0.25 to 2 rps, then 209.7 s at 4 rps. Past the knee,
+  the queue takes over completely, so capacity planning has to sit below 2 rps
+  rather than near it.
+- **`long_out` cannot meet a 10 s total-latency target at any rate.** A lone
+  request takes about 20 s, because 768 decode steps on a power-capped card
+  cost that at any load. p95 stays flat at 21.9–24.4 s from 0.1 to 0.5 rps and
+  reaches 148.9 s at 1 rps. That says more about the target than the server: a
+  decode-heavy workload needs a per-token SLO. Read against a 30 s total target,
+  the recorded points would put the knee at 0.5 rps. That target was chosen
+  after seeing the data, so nothing downstream uses it.
+- **The card was power-capped for 84–100 % of busy samples** at every knee
+  above. Every throughput figure here is a floor. See Limitations.
+
+### fp16: quality
+
+Five runs of Project 01's harness against the same server, greedy decoding,
+28 rows:
+
+| Metric | Mean | Range over five runs |
+|---|---:|---:|
+| Slab accuracy | 41.4 % | 39.3–42.9 % |
+| HSN accuracy | 62.9 % | 60.7–64.3 % |
+| Chapter accuracy | 70.0 % | 67.9–71.4 % |
+| Abstention accuracy | 100 % | 100 % |
+| Stale-slab rate | 5.0 % | 3.6–7.1 % |
+| Unparseable | 0 % | 0 % |
+
+Greedy decoding still moved: the runs differ by one row out of 28, which is
+3.57 points. vLLM does not guarantee identical output across different batch
+compositions. That measured spread is the quality gate's tolerance. For scale,
+the frontier reference in Project 01 averages about 54 % on the same rows.
 
 ### The three workload profiles
 
@@ -79,8 +123,8 @@ after the other cannot benefit from a prefix cache the other warmed.
 
 Stated before any number exists, so it cannot be written to fit the result.
 
-**In it:** GPU rental at a dated market rate, for the hours the deployment
-would actually run.
+**In it:** the GPU's hourly cost, meaning amortised purchase price plus
+electricity, for every hour of the month. A card costs the same idle as busy.
 
 **Not in it:**
 
@@ -92,13 +136,15 @@ would actually run.
 - storage, egress, and the control plane
 - the cost of being wrong — an API provider absorbs a bad deploy; you do not
 
-**The rate is a market rate, not what was paid.** These measurements run on
-free-tier GPU hours. Reporting the cost as zero would put the crossover at one
-request a month and make the chart worthless, so every published figure uses
-what an hour of that GPU class actually costs to rent, read from a provider on
-a stated date. What the project itself spent is a separate number and lives in
+**The rate is what an hour of the card costs, not what this project paid.** The
+measurements run on a laptop the author already owned, so the cash spent on GPU
+time was zero. Reporting the cost as zero would put the crossover at one request
+a month and make the chart worthless. Every published figure instead uses the
+card's amortised cost: ₹2,49,990 over three years, plus electricity at its 140 W
+power limit, priced as available around the clock. That comes to **₹10.63 an
+hour**. What the project itself spent is a separate number and lives in
 [`docs/cost-log.md`](docs/cost-log.md). Keeping the two apart is deliberate:
-one answers "what would this cost a company", the other "what did this cost its
+one answers "what would this cost to run", the other "what did this cost its
 author", and collapsing them answers neither.
 
 `bench/config.py` refuses to produce a cost figure from an unread rate —
@@ -211,8 +257,8 @@ pending.
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
 python -m pip install -e '.[dev,load,charts]'
-python -m pytest tests -q                 # 149 tests, no GPU
-python -m pytest tests -q -m "not e2e"    # 135 of them, in 3 seconds
+python -m pytest tests -q                 # 187 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 173 of them, in 3 seconds
 ```
 
 **The whole toolchain runs without a GPU.** `tests/mock_server.py` speaks vLLM's
@@ -322,10 +368,19 @@ Written before the measurements, so none of it is retrofitted.
 - **This card cannot be rented, which is a real problem for the cost curve.**
   No cloud offers a laptop 5070 Ti, so there is no provider rate to read.
   Pairing locally-measured throughput with some other card's hourly price would
-  describe a machine that does not exist, so the honest route is
-  `amortised_usd_per_hour()`: purchase price over expected serving hours, plus
-  measured power draw at a stated tariff. Every input is printed beside the
-  result, and `duty_cycle` is the one that moves it most.
+  describe a machine that does not exist. So the card is priced from what it
+  cost, in `OwnedHardware` in `bench/config.py`, with every input sourced. Two
+  inputs are assumptions and are labelled as such: a three-year life and an
+  ₹8/kWh tariff. The tariff barely matters. The whole ₹3–14 range of state
+  tariffs moves the hourly rate by ₹1.54.
+
+  **Duty cycle is a trap here.** Cost per *serving* hour moves about 11×
+  between serving 24 hours a day and 2 (₹10.63 to ₹115.27). The crossover must
+  not use those figures. It already bills the card for every hour of the month
+  and shows idle time as low utilisation, so pricing the card at a partial duty
+  cycle as well would count the idle hours twice. An early version made exactly
+  that mistake. The crossover now uses the around-the-clock rate, and a test
+  holds it there.
 
 ---
 

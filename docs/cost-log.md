@@ -20,31 +20,41 @@ Prometheus rules, the CI gate, the load generator and the whole cost model are
 CPU-side plumbing, and every one of them is finished and tested before a single
 GPU-hour is bought.
 
-## GPU hours: free tier
+## GPU hours: a laptop already owned
 
-This project runs its measurements on free-tier GPU hours rather than rented
-ones. Two things follow, and both matter:
+The plan assumed free-tier cloud GPU hours. The measurements actually run on
+the author's own laptop, an ASUS ROG Strix G16 (G615LR) with an RTX 5070 Ti
+Laptop GPU, under WSL2 and Podman. No GPU time was rented. Two things follow,
+and both matter:
 
-1. **The published cost curves do not use ₹0.** They use a dated market rate
-   for the GPU class actually used. A crossover chart built on free hardware
-   would put the break-even at one request a month and be worthless to anyone
-   deciding whether to self-host. See `bench/config.py`, which raises
-   `UnpricedError` rather than emitting a figure from an unread rate.
-2. **The constraint is real and shapes the work.** Free tiers cap VRAM, session
-   length and total hours, which bounds which model can be served and how long
-   a sweep can run. The README's Limitations section names the GPU behind every
-   number.
+1. **The published cost curves do not use ₹0.** Hardware already paid for is
+   not free to serve on. The crossover prices the card at its amortised cost:
+   ₹2,49,990 over three years, plus electricity at the 140 W power limit, as if
+   available around the clock. That comes to **₹10.63 an hour**. Every input
+   and its source is in `OwnedHardware` in `bench/config.py`. A chart drawn at
+   ₹0 would put the break-even at one request a month and be worthless to
+   anyone deciding whether to self-host.
+2. **The constraint is real and shapes the work.** 12 GB of VRAM, part of it
+   reserved by Windows, limited the model to 4B parameters. A laptop power cap
+   throttles the card under sustained load. Every sweep point records that
+   throttling, and the README's Limitations section names the card behind
+   every number.
 
-| Provider | Card | VRAM | Quota | Used |
-|---|---|---:|---|---:|
-| *to be confirmed* | | | | |
+| Card | VRAM | Power limit | Cloud spend |
+|---|---:|---:|---:|
+| RTX 5070 Ti Laptop GPU | 12,227 MiB | 140 W | ₹0 |
 
-## What a rented equivalent would have cost
+The only marginal cash cost is electricity: at most 0.14 kWh per GPU-hour,
+about ₹1.12 at ₹8/kWh. The measured GPU-hours are totalled below once the
+ladder is finished.
 
-Filled in once the sweeps are done, from measured GPU-hours × the dated market
-rate. This is the honest answer to "what would this project have cost without
-free credits", and it is worth publishing alongside ₹0 — the free tier is a
-constraint this project worked within, not a claim that benchmarking is free.
+## What the GPU time was worth
+
+Filled in once the ladder is finished, from measured GPU-hours × the ₹10.63
+amortised hourly rate. This is the honest answer to "what did this project
+cost, counting the laptop", and it is worth publishing alongside ₹0 of cloud
+spend. Owning the card is a constraint this project worked within, not a claim
+that benchmarking is free.
 
 ## Discipline notes
 
