@@ -36,7 +36,7 @@ def _long_in_sweep() -> dict:
 
 @pytest.fixture
 def drawn(tmp_path, monkeypatch):
-    """Run build.main() against one synthetic sweep, capturing chart calls."""
+    """Run build.main() against one synthetic sweep, capturing crossover calls."""
     sweeps = tmp_path / "sweeps"
     sweeps.mkdir()
     (sweeps / "sweep_long_in_fp16.json").write_text(
@@ -51,12 +51,17 @@ def drawn(tmp_path, monkeypatch):
 
     monkeypatch.setattr(build, "crossover_chart", fake_crossover)
     monkeypatch.setattr(build, "latency_vs_load_chart", lambda sweeps, out, **kw: out)
+    monkeypatch.setattr(build, "throughput_vs_precision_chart",
+                        lambda sweeps, out, **kw: out)
+    monkeypatch.setattr(build, "quality_vs_precision_chart",
+                        lambda quality, out, **kw: out)
     monkeypatch.setattr(build, "api_pricing_from_harness", lambda key: API)
 
     def run(gpu: str) -> list:
         monkeypatch.setattr(sys, "argv", [
             "build", "--sweeps", str(sweeps), "--out", str(tmp_path / "charts"),
-            "--gpu", gpu,
+            "--baseline", str(tmp_path / "no-baseline.json"),
+            "--eval", str(tmp_path / "eval"), "--gpu", gpu,
         ])
         assert build.main() == 0
         return calls
@@ -64,8 +69,8 @@ def drawn(tmp_path, monkeypatch):
     return run
 
 
-def test_owned_hardware_gets_exactly_one_crossover_chart(drawn):
-    assert [name for name, _ in drawn(LAPTOP.gpu_key)] == ["crossover.png"]
+def test_owned_hardware_gets_exactly_one_crossover_chart_per_rung(drawn):
+    assert [name for name, _ in drawn(LAPTOP.gpu_key)] == ["crossover-fp16.png"]
 
 
 def test_the_chart_is_priced_around_the_clock_with_the_measured_knee(drawn):
