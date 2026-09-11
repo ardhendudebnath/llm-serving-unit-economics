@@ -1,0 +1,23 @@
+[
+  {
+    "id": "longin-0000",
+    "parses": true,
+    "slab": "12",
+    "hsn4": "4911",
+    "text": "SLAB: 12  \nHSN: 4911  \nANSWERABLE: yes  \nWHY: The printed trade advertising materials fall under HSN 4911, which is classified under Chapter 49"
+  },
+  {
+    "id": "longin-0001",
+    "parses": true,
+    "slab": "UNANSWERABLE",
+    "hsn4": null,
+    "text": "SLAB: UNANSWERABLE  \nHSN: NONE  \nANSWERABLE: no  \nWHY: The description of \"Kandi Ravo\" as unprocessed tobacco waste mixed with natural clay and water, intended for use by tobacco"
+  },
+  {
+    "id": "longin-0002",
+    "parses": true,
+    "slab": "UNANSWERABLE",
+    "hsn4": null,
+    "text": "SLAB: UNANSWERABLE  \nHSN: NONE  \nANSWERABLE: no  \nWHY: The description refers to a mechanical sprayer (HTP Kirloskar Power Sprayer) used in agriculture and industrial purposes, but"
+  }
+]
