@@ -1,0 +1,94 @@
+{
+  "model": "gst-4b-int4",
+  "precision": "int4",
+  "dataset_sha": "8c32ff29e970115f61c4da5d778dc9e38379ed7502e9f4aa50b35e487ddb95ee",
+  "prompt_version": "v1",
+  "recorded_at": "2026-09-11",
+  "n_repeats": 5,
+  "scores": {
+    "slab_acc": 0.25,
+    "hsn_acc": 0.3929,
+    "chapter_acc": 0.4643,
+    "abstention_acc": 0.6071,
+    "stale_slab_rate": 0.0357,
+    "stale_cited_rate": 0.04284,
+    "unparseable": 0.0,
+    "errored": 0.0
+  },
+  "noise": {
+    "slab_acc": 0.0,
+    "hsn_acc": 0.0,
+    "chapter_acc": 0.0,
+    "abstention_acc": 0.0,
+    "stale_slab_rate": 0.0,
+    "stale_cited_rate": 3.57,
+    "unparseable": 0.0,
+    "errored": 0.0
+  },
+  "observed_per_run": {
+    "slab_acc": [
+      25.0,
+      25.0,
+      25.0,
+      25.0,
+      25.0
+    ],
+    "hsn_acc": [
+      39.29,
+      39.29,
+      39.29,
+      39.29,
+      39.29
+    ],
+    "chapter_acc": [
+      46.43,
+      46.43,
+      46.43,
+      46.43,
+      46.43
+    ],
+    "abstention_acc": [
+      60.71,
+      60.71,
+      60.71,
+      60.71,
+      60.71
+    ],
+    "stale_slab_rate": [
+      3.57,
+      3.57,
+      3.57,
+      3.57,
+      3.57
+    ],
+    "stale_cited_rate": [
+      3.57,
+      3.57,
+      3.57,
+      3.57,
+      7.14
+    ],
+    "unparseable": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "errored": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "source_runs": [
+    "20260911T122445Z_open-weight-vllm_shared.json",
+    "20260911T122634Z_open-weight-vllm_shared.json",
+    "20260911T122822Z_open-weight-vllm_shared.json",
+    "20260911T123011Z_open-weight-vllm_shared.json",
+    "20260911T123157Z_open-weight-vllm_shared.json"
+  ],
+  "note": "int4 rung: RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16, served as gst-4b-int4"
+}

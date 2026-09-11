@@ -1,0 +1,31 @@
+[12:20:07] rendering config from the ConfigMap
+[12:20:07] override MODEL_ID=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
+[12:20:07] override PRECISION=int4
+[12:20:07] override SERVED_MODEL_NAME=gst-4b-int4
+    MODEL_ID=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
+    PRECISION=int4
+    SERVED_MODEL_NAME=gst-4b-int4
+    MAX_MODEL_LEN=4096
+    MAX_NUM_SEQS=16
+    GPU_MEMORY_UTILIZATION=0.85
+    ENABLE_PREFIX_CACHING=0
+[12:20:07] building (cached after the first run)
+[12:20:08] build ok
+[12:20:08] starting container
+[12:20:08] weights on host: 25G
+[12:20:09] waiting for readiness
+[12:22:15] READY
+
+=== served models ===
+{"object":"list","data":[{"id":"gst-4b-int4","object":"model","created":1789129335,"owned_by":"vllm","root":"RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16","parent":null,"max_model_len":4096,"permission":[{"id":"modelperm-cb5204feb818491e8ceb010398de689c","object":"model_permission","created":1789129335,"allow_create_engine":false,"allow_sampling":true,"allow_logprobs":true,"allow_search_indices":false,"allow_view":true,"allow_fine_tuning":false,"organization":"*","group":null,"is_blocking":false}]}]}
+=== VRAM ===
+10857 MiB, 12227 MiB, 45 %
+=== KV cache / concurrency vLLM reports ===
+[1;36m(APIServer pid=1)[0;0m INFO 09-11 05:20:18 [utils.py:233] non-default args: {'host': '0.0.0.0', 'model': 'RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16', 'max_model_len': 4096, 'quantization': 'compressed-tensors', 'served_model_name': ['gst-4b-int4'], 'gpu_memory_utilization': 0.85, 'enable_prefix_caching': False, 'max_num_seqs': 16}
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:20:34 [core.py:77] Initializing a V1 LLM engine (v0.11.0) with config: model='RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16', speculative_config=None, tokenizer='RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=4096, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser=''), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None), seed=0, served_model_name=gst-4b-int4, enable_prefix_caching=False, chunked_prefill_enabled=True, pooler_config=None, compilation_config={"level":3,"debug_dump_path":"","cache_dir":"","backend":"","custom_ops":[],"splitting_ops":["vllm.unified_attention","vllm.unified_attention_with_output","vllm.mamba_mixer2","vllm.mamba_mixer","vllm.short_conv","vllm.linear_attention","vllm.plamo2_mamba_mixer","vllm.gdn_attention","vllm.sparse_attn_indexer"],"use_inductor":true,"compile_sizes":[],"inductor_compile_config":{"enable_auto_functionalized_v2":false},"inductor_passes":{},"cudagraph_mode":[2,1],"use_cudagraph":true,"cudagraph_num_of_warmups":1,"cudagraph_capture_sizes":[32,24,16,8,4,2,1],"cudagraph_copy_inputs":false,"full_cuda_graph":false,"use_inductor_graph_partition":false,"pass_config":{},"max_capture_size":32,"local_cache_dir":null}
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:20:36 [gpu_model_runner.py:2602] Starting to load model RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16...
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:21:41 [gpu_worker.py:298] Available KV cache memory: 6.66 GiB
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:21:41 [kv_cache_utils.py:1087] GPU KV cache size: 48,448 tokens
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:21:41 [kv_cache_utils.py:1091] Maximum concurrency for 4,096 tokens per request: 11.83x
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:22:08 [gpu_model_runner.py:3480] Graph capturing finished in 26 secs, took -0.19 GiB
+[1;36m(EngineCore_DP0 pid=125)[0;0m INFO 09-11 05:22:08 [core.py:210] init engine (profile, create kv cache, warmup model) took 88.25 seconds
