@@ -2,9 +2,18 @@
 
     python -m bench.report.build --gpu rtx5070ti-laptop --api haiku-4-5
 
-Reads `results/sweeps/*.json` and writes to `docs/charts/`. Deliberately
-partial: it renders what it can and says plainly what it could not, rather than
-failing entirely or -- far worse -- filling a gap with a default.
+Reads `results/sweeps/*.json`, the fp16 baseline in `gate/baseline.json` and
+each quantised rung's `results/eval/<rung>/spread.json`, and writes to
+`docs/charts/`:
+
+    latency-vs-load-<precision>.png   one per rung, one panel per profile
+    throughput-vs-precision.png       the knee per profile, per rung
+    quality-vs-precision.png          harness accuracy per rung, with its spread
+    crossover-<precision>.png         one per rung with a priceable knee
+
+Deliberately partial: it renders what it can and says plainly what it could
+not, rather than failing entirely or -- far worse -- filling a gap with a
+default.
 
 The crossover chart in particular is refused rather than approximated when the
 GPU has no rate read from a provider, when no load point met the SLO, or when
@@ -20,16 +29,30 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from bench.config import GPUS, LAPTOP, get_gpu, priced
+from bench.config import GPUS, LADDER, LAPTOP, get_gpu, priced
 from bench.cost import ApiPricing, Capacity, UnpricedError, api_pricing_from_harness
-from bench.report.charts import crossover_chart, latency_vs_load_chart
+from bench.report.charts import (
+    crossover_chart,
+    latency_vs_load_chart,
+    quality_vs_precision_chart,
+    throughput_vs_precision_chart,
+)
 
 SWEEPS = Path("results/sweeps")
 OUT = Path("docs/charts")
+BASELINE = Path("gate/baseline.json")
+EVAL = Path("results/eval")
 
 #: Profile order, so the latency panels always read short -> long_in ->
 #: long_out rather than in whatever order the filesystem returns.
 PROFILE_ORDER = ("short", "long_in", "long_out")
+
+#: Ladder order. Sorted by filename, int4 comes before int8.
+PRECISION_ORDER = tuple(LADDER)
+
+
+def _rank(value: str, order: tuple[str, ...]) -> int:
+    return order.index(value) if value in order else len(order)
 
 
 def load_sweeps(directory: Path, precision: str | None = None) -> list[dict]:
@@ -44,12 +67,26 @@ def load_sweeps(directory: Path, precision: str | None = None) -> list[dict]:
             sweeps.append(sweep)
     return sorted(
         sweeps,
-        key=lambda s: (
-            PROFILE_ORDER.index(s["profile"])
-            if s["profile"] in PROFILE_ORDER
-            else len(PROFILE_ORDER)
-        ),
+        key=lambda s: (_rank(s["profile"], PROFILE_ORDER),
+                       _rank(s["precision"], PRECISION_ORDER)),
     )
+
+
+def load_quality(baseline: Path, eval_dir: Path) -> dict[str, dict]:
+    """Quality records by precision: the fp16 baseline and each rung's spread.
+
+    Both are written by gate/record.py, so they share one shape. A rung whose
+    spread.json does not exist yet is absent from the result, and the chart
+    labels it "not measured" rather than drawing it at zero.
+    """
+    records: dict[str, dict] = {}
+    for path in (baseline, *(eval_dir / key / "spread.json" for key in LADDER)):
+        if not path.exists():
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("scores") and record.get("precision"):
+            records.setdefault(record["precision"], record)
+    return records
 
 
 def capacity_from(sweep: dict, gpu_key: str) -> Capacity | None:
@@ -91,10 +128,69 @@ def capacity_from(sweep: dict, gpu_key: str) -> Capacity | None:
     )
 
 
+def draw_crossovers(
+    sweeps: list[dict], args: argparse.Namespace,
+    written: list[Path], skipped: list[str],
+) -> None:
+    """One crossover chart per rung that has a priceable knee on `args.profile`.
+
+    Per rung because the ladder's cost question is exactly how far a smaller
+    rung moves the crossover. Each rung that cannot be priced is skipped by
+    name, so a missing int8 chart is never mistaken for one nobody tried.
+    """
+    targets = [s for s in sweeps if s["profile"] == args.profile]
+    if not targets:
+        skipped.append(f"crossover: no sweep for profile {args.profile!r}")
+        return
+
+    api: ApiPricing | None = None
+    for target in targets:
+        label = f"crossover {target['precision']}"
+        capacity = capacity_from(target, args.gpu)
+        if capacity is None:
+            skipped.append(
+                f"{label}: {args.profile} has no priceable knee -- either no "
+                f"arrival rate met the {target['slo_p95_s']:g}s SLO, or the "
+                "sweep predates per-request token accounting and would have to "
+                "be re-run"
+            )
+            continue
+
+        if args.gpu == LAPTOP.gpu_key:
+            # Priced around the clock like a rented card. Idle time is already
+            # on the chart as low utilisation; pricing the laptop at a partial
+            # duty cycle too would count it twice. See OwnedHardware.priced_gpu().
+            capacity = replace(capacity, gpu=LAPTOP.priced_gpu())
+
+        if not priced(capacity.gpu):
+            skipped.append(
+                f"{label}: {args.gpu} has no hourly rate read from a provider. "
+                "Set market_usd_per_hour and rate_read_on in bench/config.py, or "
+                "describe it as OwnedHardware if it cannot be rented"
+            )
+            continue
+
+        if api is None:
+            try:
+                api = api_pricing_from_harness(args.api)
+            except UnpricedError as exc:
+                skipped.append(f"crossover: {exc}")
+                return
+
+        written.append(crossover_chart(
+            capacity, api, args.out / f"crossover-{target['precision']}.png",
+            peak_to_mean=args.peak_to_mean, currency=args.currency,
+        ))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sweeps", type=Path, default=SWEEPS)
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--baseline", type=Path, default=BASELINE,
+                    help="the fp16 quality baseline written by gate/record.py")
+    ap.add_argument("--eval", type=Path, default=EVAL,
+                    help="directory holding <rung>/spread.json for quantised rungs")
     ap.add_argument("--gpu", default="rtx5070ti-laptop", choices=sorted(GPUS))
     ap.add_argument("--api", default="haiku-4-5",
                     help="model key in Project 01's registry to compare against")
@@ -119,47 +215,36 @@ def main() -> int:
     written: list[Path] = []
     skipped: list[str] = []
 
-    # --- latency vs load ---------------------------------------------------
-    written.append(latency_vs_load_chart(sweeps, args.out / "latency-vs-load.png"))
+    # --- latency vs load, one chart per rung -------------------------------
+    # Nine panels in one row would be unreadable. Within a rung, the profiles
+    # sit side by side the way they were measured.
+    for precision in dict.fromkeys(s["precision"] for s in sweeps):
+        written.append(latency_vs_load_chart(
+            [s for s in sweeps if s["precision"] == precision],
+            args.out / f"latency-vs-load-{precision}.png",
+            title=f"Latency vs load at {precision}, by workload profile",
+        ))
+
+    # --- the ladder: speed and quality ---------------------------------------
+    written.append(throughput_vs_precision_chart(
+        sweeps, args.out / "throughput-vs-precision.png"
+    ))
+
+    quality = load_quality(args.baseline, args.eval)
+    if args.precision:
+        quality = {k: v for k, v in quality.items() if k == args.precision}
+    if quality:
+        written.append(quality_vs_precision_chart(
+            quality, args.out / "quality-vs-precision.png"
+        ))
+    else:
+        skipped.append(
+            f"quality: no recorded runs in {args.baseline} or "
+            f"{args.eval}/<rung>/spread.json"
+        )
 
     # --- the crossover chart -----------------------------------------------
-    target = next((s for s in sweeps if s["profile"] == args.profile), None)
-    if target is None:
-        skipped.append(f"crossover: no sweep for profile {args.profile!r}")
-    else:
-        capacity = capacity_from(target, args.gpu)
-        if capacity is None:
-            skipped.append(
-                f"crossover: {args.profile} has no priceable knee -- either no "
-                f"arrival rate met the {target['slo_p95_s']:g}s SLO, or the "
-                "sweep predates per-request token accounting and would have to "
-                "be re-run"
-            )
-        else:
-            if args.gpu == LAPTOP.gpu_key:
-                # One chart, priced around the clock like a rented card. Idle
-                # time is already on the chart as low utilisation; pricing the
-                # laptop at a partial duty cycle too would count it twice. See
-                # OwnedHardware.priced_gpu().
-                capacity = replace(capacity, gpu=LAPTOP.priced_gpu())
-
-            if not priced(capacity.gpu):
-                skipped.append(
-                    f"crossover: {args.gpu} has no hourly rate read from a "
-                    "provider. Set market_usd_per_hour and rate_read_on in "
-                    "bench/config.py, or describe it as OwnedHardware if it "
-                    "cannot be rented"
-                )
-            else:
-                try:
-                    api: ApiPricing = api_pricing_from_harness(args.api)
-                except UnpricedError as exc:
-                    skipped.append(f"crossover: {exc}")
-                else:
-                    written.append(crossover_chart(
-                        capacity, api, args.out / "crossover.png",
-                        peak_to_mean=args.peak_to_mean, currency=args.currency,
-                    ))
+    draw_crossovers(sweeps, args, written, skipped)
 
     print(f"\n  charts -> {args.out}\n")
     for path in written:
