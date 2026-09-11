@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 from pathlib import Path
 
-from bench.config import GPUS, get_gpu, priced
+from bench.config import DUTY_CYCLES, GPUS, LAPTOP, get_gpu, priced
 from bench.cost import ApiPricing, Capacity, UnpricedError, api_pricing_from_harness
 from bench.report.charts import crossover_chart, latency_vs_load_chart
 
@@ -127,6 +128,7 @@ def main() -> int:
         skipped.append(f"crossover: no sweep for profile {args.profile!r}")
     else:
         capacity = capacity_from(target, args.gpu)
+        variants: list[tuple[str, Capacity]] = []
         if capacity is None:
             skipped.append(
                 f"crossover: {args.profile} has no priceable knee -- either no "
@@ -134,22 +136,39 @@ def main() -> int:
                 "sweep predates per-request token accounting and would have to "
                 "be re-run"
             )
-        elif not priced(capacity.gpu):
+        elif args.gpu == LAPTOP.gpu_key:
+            # Owned hardware has no single hourly price: its cost depends on how
+            # much of its life it serves, and that moves the rate about 11x
+            # across DUTY_CYCLES. So it gets one chart per duty cycle rather
+            # than one chart resting on a silently chosen number.
+            variants = [
+                (label, replace(capacity, gpu=LAPTOP.priced_gpu(duty)))
+                for label, duty in DUTY_CYCLES.items()
+            ]
+        elif priced(capacity.gpu):
+            variants = [("", capacity)]
+        else:
             skipped.append(
                 f"crossover: {args.gpu} has no hourly rate read from a provider. "
                 "Set market_usd_per_hour and rate_read_on in bench/config.py, or "
-                "derive one with amortised_usd_per_hour() for owned hardware"
+                "describe it as OwnedHardware if it cannot be rented"
             )
-        else:
+
+        if variants:
             try:
                 api: ApiPricing = api_pricing_from_harness(args.api)
             except UnpricedError as exc:
                 skipped.append(f"crossover: {exc}")
             else:
-                written.append(crossover_chart(
-                    capacity, api, args.out / "crossover.png",
-                    peak_to_mean=args.peak_to_mean, currency=args.currency,
-                ))
+                for label, cap in variants:
+                    slug = f"-{label.split()[0]}h" if label else ""
+                    title = (f"Serving {cap.profile} at {cap.precision}, "
+                             f"laptop serving {label}") if label else None
+                    written.append(crossover_chart(
+                        cap, api, args.out / f"crossover{slug}.png",
+                        peak_to_mean=args.peak_to_mean, currency=args.currency,
+                        title=title,
+                    ))
 
     print(f"\n  charts -> {args.out}\n")
     for path in written:

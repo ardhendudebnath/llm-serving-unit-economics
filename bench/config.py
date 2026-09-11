@@ -23,7 +23,7 @@ would answer neither question honestly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 #: Rupees per US dollar. Must track Project 01's registry, which reports the
 #: same conversion on its leaderboard; `tests/test_cross_repo.py` fails if the
@@ -170,6 +170,102 @@ def amortised_usd_per_hour(
     capital_per_hour = hardware_usd / serving_hours
     energy_per_hour = (mean_power_w / 1000.0) * pue * electricity_usd_per_kwh
     return capital_per_hour + energy_per_hour
+
+
+#: How much of its life the card spends serving. Reported as a set, never as
+#: one number: the hourly cost moves about 11x between the first and the last,
+#: and choosing one silently would choose the headline.
+DUTY_CYCLES: dict[str, float] = {
+    "24 h/day": 1.0,
+    "8 h/day": 8 / 24,
+    "2 h/day": 2 / 24,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedHardware:
+    """What an hour on hardware you own costs, with every input sourced.
+
+    Kept separate from `GpuSpec` on purpose. A rented card has one hourly
+    price; an owned one has a price only once you say how much of its life it
+    serves. So the laptop's `GpuSpec` stays unpriced, and a priced copy exists
+    only through `priced_gpu(duty_cycle)` -- which makes it impossible to draw a
+    cost curve without choosing, and stating, a duty cycle.
+    """
+
+    gpu_key: str
+    price_inr: float
+    price_source: str
+    price_read_on: str
+    useful_life_years: float
+    life_basis: str
+    power_w: float
+    power_basis: str
+    tariff_inr_per_kwh: float
+    tariff_basis: str
+
+    def usd_per_hour(self, duty_cycle: float) -> float:
+        return amortised_usd_per_hour(
+            hardware_usd=self.price_inr / USD_TO_INR,
+            useful_life_years=self.useful_life_years,
+            duty_cycle=duty_cycle,
+            mean_power_w=self.power_w,
+            electricity_usd_per_kwh=self.tariff_inr_per_kwh / USD_TO_INR,
+        )
+
+    def inr_per_hour(self, duty_cycle: float) -> float:
+        return self.usd_per_hour(duty_cycle) * USD_TO_INR
+
+    def priced_gpu(self, duty_cycle: float) -> GpuSpec:
+        """The card as a `GpuSpec` carrying this duty cycle's amortised rate."""
+        return replace(
+            get_gpu(self.gpu_key),
+            market_usd_per_hour=self.usd_per_hour(duty_cycle),
+            rate_read_on=self.price_read_on,
+            rate_source=(f"amortised over {self.useful_life_years:g} years at "
+                         f"{duty_cycle:.0%} duty cycle; {self.price_source}"),
+        )
+
+
+#: The machine the measurements ran on: ASUS ROG Strix G16, G615LR-S5190WS,
+#: Core Ultra 9 275HX, RTX 5070 Ti Laptop GPU 12 GB, 32 GB RAM, 1 TB -- read
+#: from the system itself, not assumed.
+#:
+#: Price is today's street price, not what this particular unit cost its owner.
+#: Read on 2026-09-11 from three listings that all confirm the same
+#: configuration:
+#:
+#:   Flipkart   Rs 2,49,990 selling, Rs 2,75,990 MRP
+#:     https://www.flipkart.com/asus-rog-strix-g16-2025-ai-pc-office-2024-m365-basic-intel-core-ultra-9-275hx-32-gb-1-tb-ssd-windows-11-home-12-gb-graphics-nvidia-geforce-rtx-5070-ti-240-hz-140-w-g615lr-s5190ws-gaming-laptop/p/itm59ca3b2dafe6c
+#:   IndiaMART  Rs 2,59,990
+#:     https://www.indiamart.com/proddetail/asus-rog-strix-g16-g615lr-s5190ws-gaming-laptop-2856670854191.html
+#:   Pricekeeda Rs 2,75,990 (Amazon, out of stock)
+#:     https://www.pricekeeda.com/asus-rog-strix-g16-g615lr-s5190ws-laptop-price-in-india/
+#:
+#: A search summary quoted Rs 3,59,990 for the Flipkart listing; the page
+#: itself says Rs 2,49,990. Recorded because it is exactly how an unverified
+#: figure would have entered the cost curve.
+#:
+#: Tariff: no national residential average could be verified -- a widely
+#: repeated Rs 5.5/kWh figure traced to pages that refused to load, and
+#: Wikipedia gives none. Rs 8/kWh is an assumption inside the Rs 3-14/kWh state
+#: range NoBroker lists (updated 2026-07-26). It barely matters: electricity is
+#: about 10 % of the hourly cost at 24 h/day, and the whole state range moves
+#: that figure by about Rs 1.5.
+LAPTOP = OwnedHardware(
+    gpu_key="rtx5070ti-laptop",
+    price_inr=249_990.0,
+    price_source="Flipkart selling price Rs 2,49,990 for G615LR-S5190WS (MRP Rs 2,75,990)",
+    price_read_on="2026-09-11",
+    useful_life_years=3.0,
+    life_basis="assumption: a common useful life for a laptop, not a measurement",
+    power_w=140.0,
+    power_basis=("the card's power limit as reported by nvidia-smi; GPU only, "
+                 "so it excludes the CPU and the rest of the laptop"),
+    tariff_inr_per_kwh=8.0,
+    tariff_basis=("assumption inside the Rs 3-14/kWh state range listed by "
+                  "NoBroker (updated 2026-07-26); no national average verifiable"),
+)
 
 
 #: The model under test.
