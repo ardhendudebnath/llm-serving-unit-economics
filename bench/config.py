@@ -172,9 +172,15 @@ def amortised_usd_per_hour(
     return capital_per_hour + energy_per_hour
 
 
-#: How much of its life the card spends serving. Reported as a set, never as
-#: one number: the hourly cost moves about 11x between the first and the last,
-#: and choosing one silently would choose the headline.
+#: How much of its life the card spends serving -- for the cost per *serving
+#: hour* only. Reported as a set because that figure moves about 11x across it.
+#:
+#: **Deliberately not used to price the crossover.** The crossover already
+#: accounts for idle time: monthly cost is flat whatever the volume, and the
+#: chart's utilisation panel shows how much of the card sits unused. Pricing the
+#: card at a partial duty cycle as well counts those idle hours twice. An
+#: earlier version did exactly that, and would have put the 2 h/day crossover
+#: about 11x too high.
 DUTY_CYCLES: dict[str, float] = {
     "24 h/day": 1.0,
     "8 h/day": 8 / 24,
@@ -184,13 +190,21 @@ DUTY_CYCLES: dict[str, float] = {
 
 @dataclass(frozen=True, slots=True)
 class OwnedHardware:
-    """What an hour on hardware you own costs, with every input sourced.
+    """What owning a card costs, with every input sourced.
 
-    Kept separate from `GpuSpec` on purpose. A rented card has one hourly
-    price; an owned one has a price only once you say how much of its life it
-    serves. So the laptop's `GpuSpec` stays unpriced, and a priced copy exists
-    only through `priced_gpu(duty_cycle)` -- which makes it impossible to draw a
-    cost curve without choosing, and stating, a duty cycle.
+    Two different figures, and mixing them up is the trap:
+
+      inr_per_serving_hour(d)   what one hour of serving costs when the card
+                                serves fraction d of its life. Moves about 11x
+                                across DUTY_CYCLES. An explanatory figure.
+
+      priced_gpu()              the card as a GpuSpec for the crossover, priced
+                                as available around the clock -- the same basis
+                                a rented card is billed on, which is what
+                                monthly() assumes.
+
+    The laptop's `GpuSpec` in GPUS stays unpriced, so a crossover can only be
+    drawn from the second.
     """
 
     gpu_key: str
@@ -204,7 +218,7 @@ class OwnedHardware:
     tariff_inr_per_kwh: float
     tariff_basis: str
 
-    def usd_per_hour(self, duty_cycle: float) -> float:
+    def usd_per_serving_hour(self, duty_cycle: float) -> float:
         return amortised_usd_per_hour(
             hardware_usd=self.price_inr / USD_TO_INR,
             useful_life_years=self.useful_life_years,
@@ -213,17 +227,32 @@ class OwnedHardware:
             electricity_usd_per_kwh=self.tariff_inr_per_kwh / USD_TO_INR,
         )
 
-    def inr_per_hour(self, duty_cycle: float) -> float:
-        return self.usd_per_hour(duty_cycle) * USD_TO_INR
+    def inr_per_serving_hour(self, duty_cycle: float) -> float:
+        return self.usd_per_serving_hour(duty_cycle) * USD_TO_INR
 
-    def priced_gpu(self, duty_cycle: float) -> GpuSpec:
-        """The card as a `GpuSpec` carrying this duty cycle's amortised rate."""
+    def priced_gpu(self) -> GpuSpec:
+        """The card as a `GpuSpec` for the crossover chart.
+
+        Priced as available around the clock: capital spread over every hour of
+        its life, electricity at the power limit for every hour. `monthly()`
+        charges a card's rate for every hour of the month and lets utilisation
+        show how much of it sat idle, so idleness must not be discounted here
+        as well -- that would count the idle hours twice.
+
+        Takes no duty cycle, on purpose, so the double count cannot be
+        reintroduced by passing one.
+
+        Charging the power limit around the clock overstates electricity for an
+        idle card, which measured about 8 W. The overstatement is bounded by the
+        electricity term, about 10 % of the rate, and errs against
+        self-hosting rather than in its favour.
+        """
         return replace(
             get_gpu(self.gpu_key),
-            market_usd_per_hour=self.usd_per_hour(duty_cycle),
+            market_usd_per_hour=self.usd_per_serving_hour(1.0),
             rate_read_on=self.price_read_on,
-            rate_source=(f"amortised over {self.useful_life_years:g} years at "
-                         f"{duty_cycle:.0%} duty cycle; {self.price_source}"),
+            rate_source=(f"amortised over {self.useful_life_years:g} years, "
+                         f"available around the clock; {self.price_source}"),
         )
 
 
