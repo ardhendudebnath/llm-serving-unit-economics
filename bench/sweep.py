@@ -169,7 +169,16 @@ def sweep_one(
         #
         # Zero by default, because on a datacentre card with headroom this only
         # wastes time.
-        if cooldown_s > 0 and state.points:
+        #
+        # **Before the first point too.** An earlier version skipped it, on the
+        # theory that nothing precedes the first point. Something always does:
+        # when a chain sweeps one profile after another, each profile's first
+        # point inherits the last point of the one before. The int4 `long_in`
+        # sweep opened straight after `short` had spent about 13 minutes
+        # saturated at 16 rps, and recorded p50 13.5 s at 0.25 rps -- against
+        # 0.96 s at 0.5 rps once the card had cooled. The knee walks up from the
+        # lowest rate, so that one hot point read as "no rate met the SLO".
+        if cooldown_s > 0:
             print(f"    cooling {cooldown_s:g}s before the next point", flush=True)
             time.sleep(cooldown_s)
             if (idle := gpu.sample_once()) is not None:
@@ -226,7 +235,9 @@ def sweep_one(
             print(f"    {state.stopped_because}")
             break
     else:
-        state.stopped_because = "swept every requested rate"
+        # Kept when already set: re-measuring one low point of a sweep that
+        # stopped at saturation must not rewrite why it stopped.
+        state.stopped_because = state.stopped_because or "swept every requested rate"
         state.save(checkpoint)
 
     return state
