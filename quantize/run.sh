@@ -30,8 +30,18 @@ SMOKE=/models/local/.smoke-w8a16
 say() { echo "[$(date -u '+%H:%M:%S')] $*"; }
 
 say "quantisation starting"
-# The serving container holds the GPU, and calibration needs all of it.
-podman rm -f vllm-serving llm-quantize >/dev/null 2>&1 || true
+# The serving container holds the GPU, and calibration needs all of it. One
+# name per call: `podman rm -f vllm-serving llm-quantize` left vllm-serving
+# running when llm-quantize did not exist, and the first build started beside
+# an int4 server holding 11 GB of the card.
+for c in vllm-serving llm-quantize; do
+    podman rm -f "$c" >/dev/null 2>&1 || true
+done
+used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)
+if [ "${used:-0}" -gt 1024 ]; then
+    say "QUANT FAILED: the GPU still holds ${used} MiB after stopping containers; refusing to calibrate beside another process"
+    exit 1
+fi
 mkdir -p "$MODELS_DIR/local"
 rm -rf "${MODELS_DIR:?}/local/$NAME" "$MODELS_DIR/local/.smoke-w8a16"
 
