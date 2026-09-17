@@ -18,9 +18,11 @@ from 4 to 8. Both quantised rungs are then weight-only GPTQ at group size 128,
 symmetric, static act-order, MSE observer, on the same calibration set, and
 they differ in bit width alone.
 
-The only knobs are the two a 12 GB card might force down: calibration samples
-and sequence length. Whatever was actually used is written to provenance.json
-beside the weights, so a reduced run cannot pass for the recipe's.
+The only knobs are the two this laptop's memory forces down: calibration
+samples and sequence length. The recipe's 1,024 x 8,192 did not fit in the WSL
+VM's 15 GB of host RAM (see run.sh). Whatever was actually used is written to
+provenance.json beside the weights, so a reduced run cannot pass for the
+recipe's.
 
 run.sh pins llmcompressor to 0.7.1, the release built against
 compressed-tensors 0.11.0, which is the version vLLM 0.11.0 reads.

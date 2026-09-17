@@ -11,10 +11,17 @@
 # One container, so llmcompressor is installed once:
 #   1. a smoke build (4 samples, 256 tokens) into a scratch directory, so a
 #      broken pipeline fails in minutes rather than an hour in;
-#   2. the build at the recipe's calibration settings;
-#   3. only if that fails, one retry at 512 samples x 4,096 tokens -- what a
-#      12 GB card is most likely to need. provenance.json records which run
-#      produced the weights.
+#   2. the build at 256 samples x 2,048 tokens;
+#   3. only if that fails, one retry at 128 x 2,048, the calibration size the
+#      original GPTQ paper used.
+#
+# **Why not the recipe's 1,024 x 8,192.** It was tried first, on 2026-09-11.
+# The WSL VM gets 15 GB of this laptop's 31.4 GB of RAM, and llm-compressor
+# holds the whole model on the host plus every calibration sample's
+# activations. The recipe's settings were killed (SIGKILL, exit 137) six
+# samples into propagating the first layer. A retry at 512 x 4,096 was killed
+# twenty-four samples in. provenance.json records the settings that produced
+# the weights, so the reduction cannot pass for the recipe.
 #
 # The container is thrown away, so the pip install cannot touch the serving
 # image. llmcompressor 0.7.1 downgrades transformers and accelerate inside it,
@@ -55,10 +62,10 @@ podman run --rm --name llm-quantize \
       python3 /work/w8a16.py --out $SMOKE --samples 4 --max-seq-len 256 || exit 4
       rm -rf $SMOKE
       echo SMOKE BUILD OK
-      python3 /work/w8a16.py --out $OUT && exit 0
-      echo 'recipe-settings build failed; retrying at 512 samples x 4096 tokens'
+      python3 /work/w8a16.py --out $OUT --samples 256 --max-seq-len 2048 && exit 0
+      echo 'build at 256 x 2048 failed; retrying at 128 samples x 2048 tokens'
       rm -rf $OUT
-      python3 /work/w8a16.py --out $OUT --samples 512 --max-seq-len 4096
+      python3 /work/w8a16.py --out $OUT --samples 128 --max-seq-len 2048
     "
 rc=$?
 
