@@ -9,12 +9,13 @@ classifying Indian goods into the GST slab that is *currently* in force, after
 two restructures in under two years. That project scores quality. This one adds
 latency and cost, so all three sit in the same frame.
 
-> **Status: fp16 measured; int8 and int4 in progress (week 1 of 6).**
+> **Status: fp16 and int4 measured; int8 being rebuilt (week 1 of 6).**
 >
-> The fp16 rung has been served, load-tested on all three workload profiles and
-> scored five times on Project 01's harness. Its numbers are below. The int8 and
-> int4 rungs, the crossover chart and the headline are still absent rather than
-> estimated.
+> fp16 and int4 have both been served, load-tested on all three workload
+> profiles and scored five times on Project 01's harness. Their numbers are
+> below. int8 is not: RedHatAI's W8A8 checkpoint has no kernel on this card, so
+> the 8-bit rung is being built as W8A16 instead (see Limitations). The
+> crossover chart and the headline are still absent rather than estimated.
 >
 > This section will keep saying what is missing until nothing is. Project 01
 > holds the same line, and it is the reason its numbers are worth reading.
@@ -41,58 +42,78 @@ as the finding.
 
 ## Measurements
 
-| | fp16 | int8 | int4 |
+| | fp16 | int8 (W8A16) | int4 (W4A16) |
 |---|---|---|---|
-| Latency vs load, three workload profiles | measured | not run | not run |
-| Quality on Project 01's harness, five runs | measured | not run | not run |
-| GPU utilisation and throttling at each point | measured | not run | not run |
-| Cost per 1000 requests, self-hosted vs API | not charted | — | — |
+| Latency vs load, three workload profiles | measured | building | measured |
+| Quality on Project 01's harness, five runs | measured | building | measured |
+| GPU utilisation and throttling at each point | measured | building | measured |
+| Cost per 1000 requests, self-hosted vs API | not charted | — | not charted |
 
-### fp16: capacity at a p95 of 10 s
+### Capacity at a p95 of 10 s
 
-Qwen3-4B-Instruct-2507 at 16-bit (BF16) on vLLM 0.11.0, one RTX 5070 Ti Laptop
-GPU, `max_model_len` 4096, 16 sequences, prefix caching off. Each load point
-runs 150 s of Poisson arrivals, with 60 s of idle between points. The knee is
-the highest arrival rate whose p95 still meets the SLO.
+Qwen3-4B-Instruct-2507 on vLLM 0.11.0, one RTX 5070 Ti Laptop GPU,
+`max_model_len` 4096, 16 sequences, prefix caching off. fp16 is the BF16
+checkpoint; int4 is RedHatAI's W4A16. Each load point runs 150 s of Poisson
+arrivals after 60 s of idle. The knee is the highest arrival rate whose p95
+still meets the SLO.
 
-| Profile | Knee | p95 at the knee | GPU util at the knee | The next rate up |
-|---|---:|---:|---:|---|
-| `short` | **8 rps** | 1.78 s | 94 % | 16 rps: p95 46.7 s, but the load generator fell 21.9 s behind schedule, so that point measures the client as much as the server |
-| `long_in` | **2 rps** | 4.82 s | 90 % | 4 rps: served only 1.65 rps, p95 209.7 s |
-| `long_out` | **none** | — | — | even 0.1 rps has a p95 of 22.3 s |
+| Profile | fp16 knee | fp16 p95 | int4 knee | int4 p95 | The next rate up |
+|---|---:|---:|---:|---:|---|
+| `short` | **8 rps** | 1.78 s | **8 rps** | 1.88 s | 16 rps fails for both, and the load generator fell behind schedule there (21.9 s at fp16, 662 s at int4), so those points measure the client as much as the server |
+| `long_in` | **2 rps** | 4.82 s | **2 rps** | 3.75 s | 4 rps: fp16 p95 209.7 s, int4 41.1 s |
+| `long_out` | **none** | — | **1 rps** | 8.20 s | fp16 misses even at 0.1 rps (22.3 s); int4 misses at 2 rps (22.1 s) |
 
-- **`long_in` has no gentle slope.** p95 goes 1.64 → 1.91 → 2.48 → 4.82 s as
-  the rate doubles from 0.25 to 2 rps, then 209.7 s at 4 rps. Past the knee,
-  the queue takes over completely, so capacity planning has to sit below 2 rps
-  rather than near it.
-- **`long_out` cannot meet a 10 s total-latency target at any rate.** A lone
-  request takes about 20 s, because 768 decode steps on a power-capped card
-  cost that at any load. p95 stays flat at 21.9–24.4 s from 0.1 to 0.5 rps and
-  reaches 148.9 s at 1 rps. That says more about the target than the server: a
-  decode-heavy workload needs a per-token SLO. Read against a 30 s total target,
-  the recorded points would put the knee at 0.5 rps. That target was chosen
-  after seeing the data, so nothing downstream uses it.
-- **The card was power-capped for 84–100 % of busy samples** at every knee
+- **`long_in` has no gentle slope.** At fp16, p95 goes 1.64 → 1.91 → 2.48 →
+  4.82 s as the rate doubles from 0.25 to 2 rps, then 209.7 s at 4 rps. int4 is
+  faster at every rate up to 2 rps but also fails at 4, so on this doubling
+  ladder both knees land at 2 rps. int4's 41 s at 4 rps, against fp16's 210 s,
+  says its true knee sits nearer 4; the ladder is too coarse to say how much
+  nearer.
+- **`long_out` is where int4 changes the answer.** At fp16 a lone request takes
+  about 20 s, because 768 decode steps on a power-capped card cost that at any
+  load, so a 10 s total-latency target is unmeetable. int4 produces the same
+  length of reply in about 5.7 s and meets the target up to 1 rps. Decode is
+  bound by memory bandwidth, and 4-bit weights move about a quarter of the
+  bytes per step. Part of the gap may be power state: the card's clock ran at
+  about 39 % of maximum through fp16's `long_out` and about 82 % through
+  int4's. (Read against a 30 s target, fp16's points would put its knee at
+  0.5 rps. That target was chosen after seeing the data, so nothing downstream
+  uses it.)
+- **The card was power-capped for 81–100 % of busy samples** at every knee
   above. Every throughput figure here is a floor. See Limitations.
 
-### fp16: quality
+### Quality on Project 01's harness
 
-Five runs of Project 01's harness against the same server, greedy decoding,
-28 rows:
+Five runs per rung against the same server, greedy decoding, 28 rows:
 
-| Metric | Mean | Range over five runs |
-|---|---:|---:|
-| Slab accuracy | 41.4 % | 39.3–42.9 % |
-| HSN accuracy | 62.9 % | 60.7–64.3 % |
-| Chapter accuracy | 70.0 % | 67.9–71.4 % |
-| Abstention accuracy | 100 % | 100 % |
-| Stale-slab rate | 5.0 % | 3.6–7.1 % |
-| Unparseable | 0 % | 0 % |
+| Metric | fp16 mean | fp16 range | int4, five runs |
+|---|---:|---:|---:|
+| Slab accuracy | 41.4 % | 39.3–42.9 % | 25.0 % |
+| HSN accuracy | 62.9 % | 60.7–64.3 % | 39.3 % |
+| Chapter accuracy | 70.0 % | 67.9–71.4 % | 46.4 % |
+| Abstention accuracy | 100 % | 100 % | 60.7 % |
+| Stale-slab rate | 5.0 % | 3.6–7.1 % | 3.6 % |
+| Unparseable | 0 % | 0 % | 0 % |
 
-Greedy decoding still moved: the runs differ by one row out of 28, which is
-3.57 points. vLLM does not guarantee identical output across different batch
-compositions. That measured spread is the quality gate's tolerance. For scale,
-the frontier reference in Project 01 averages about 54 % on the same rows.
+Greedy decoding still moved at fp16: the runs differ by one row out of 28,
+which is 3.57 points. vLLM does not guarantee identical output across
+different batch compositions. That measured spread is the quality gate's
+tolerance. int4 scored identically on all five runs. For scale, the frontier
+reference in Project 01 averages about 54 % on the same rows.
+
+**int4 did not forget the slabs; it stopped answering.** The gate blocks it on
+four metrics, each far outside fp16's noise floor
+([`gate.md`](results/eval/int4/gate.md)). The row-by-row comparison
+([`rows-vs-fp16.md`](results/eval/int4/rows-vs-fp16.md)) shows how. Against
+every one of fp16's five runs, int4 says `UNANSWERABLE` on the same 11 rows
+that fp16 answered, loses 4–5 correct answers and gains none. Where both
+commit to a slab, they agree on every row but one, in one fp16 run, where both
+were wrong. All of the lost accuracy is abstention.
+
+That matters for what would fix it. A model that had lost the knowledge would
+need more bits. One that has lost confidence might be recovered by a prompt
+that discourages abstaining, which could be tested without changing precision.
+It has not been tested here.
 
 ### The three workload profiles
 
@@ -361,6 +382,23 @@ Written before the measurements, so none of it is retrofitted.
 
   Both versions are kept under `results/sweeps/contaminated/` rather than
   deleted, because the difference between them is itself a finding.
+
+  It happened a second time, across a profile boundary. The sweep cooled
+  between its own points but not before its first, so int4's `long_in` opened
+  straight after `short` had been saturated for about 13 minutes. It recorded
+  p50 13.5 s at 0.25 rps, and that one hot point read as "no rate met the
+  SLO". Re-measured after the cooldown, the point is p95 1.09 s and the knee is
+  2 rps. The sweep now cools before every point, and the hot version is kept
+  under `results/sweeps/contaminated/` as well.
+- **The 8-bit rung is W8A16, not W8A8.** RedHatAI's W8A8 checkpoint loads and
+  then fails on its first forward pass. vLLM 0.11.0's only int8 activation
+  kernel on CUDA is CUTLASS, which does not support compute capability 12.0
+  ([`FAILED.md`](results/eval/int8-w8a8/FAILED.md)). So the ladder does not
+  measure int8 *activation* quantisation. The 8-bit rung is built here with
+  RedHatAI's own W4A16 recipe at 8 bits ([`quantize/`](quantize/)). It is
+  calibrated on fewer, shorter samples than the recipe's 1,024 × 8,192,
+  because that exhausts the WSL VM's 15 GB of RAM. The settings actually used
+  are recorded in the checkpoint's `provenance.json`.
 - **vLLM runs in WSL2, and says so itself.** It logs `Using 'pin_memory=False'
   as WSL is detected. This may slow down the performance.` Host-to-device
   transfers therefore cannot use pinned memory, which costs most on the

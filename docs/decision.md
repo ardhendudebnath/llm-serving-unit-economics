@@ -1,8 +1,9 @@
 # When to self-host vs use an API for GST slab classification
 
-A one-page decision doc. **Currently a framework with the numbers missing** —
-it is committed now so the reasoning is fixed before any measurement exists and
-cannot be reverse-engineered to fit whatever the curves turn out to say.
+A one-page decision doc. **Partly measured.** The framework was committed
+before any measurement existed, so the reasoning could not be
+reverse-engineered to fit whatever the curves turned out to say. The numbers
+are filled in as they arrive.
 
 ---
 
@@ -29,11 +30,12 @@ irrelevant and the answer is "API", at any volume. On a task where the current
 frontier reference scores ~54 % slab accuracy with a 14-point run-to-run
 spread, this is a live possibility rather than a formality.
 
-> Measured, fp16 only so far: Qwen3-4B-Instruct-2507 scores **41.4 %** slab
-> accuracy (39.3–42.9 % over five runs), against about 54 % for the frontier
-> reference. Whether a gap of about 13 points is acceptable depends on the
-> task, not the server. It has to be settled before the cost comparison means
-> anything. int8 and int4: *pending.*
+> Measured at fp16 and int4 (int8 is being rebuilt): Qwen3-4B-Instruct-2507
+> scores **41.4 %** slab accuracy at fp16 (39.3–42.9 % over five runs) and
+> **25.0 %** at int4, against about 54 % for the frontier reference. Whether
+> fp16's gap of about 13 points is acceptable depends on the task, not the
+> server. It has to be settled before the cost comparison means anything.
+> int4 is out at any price: the quality gate blocks it.
 
 ### 2. What is the volume, and where is the crossover?
 
@@ -45,9 +47,11 @@ is not working. Above it, marginal cost per request approaches the GPU rate
 divided by capacity, which is where self-hosting wins decisively.
 
 > Capacity, measured: one card serves `long_in` at **2 rps** within a 10 s
-> p95. If traffic were perfectly flat, that is 5.26 M requests a month. The
-> floor cost at full utilisation is **₹1.48 per 1000 requests**, from the
-> laptop's ₹10.63 amortised hour.
+> p95, at fp16 and at int4 alike. If traffic were perfectly flat, that is
+> 5.26 M requests a month. The floor cost at full utilisation is **₹1.48 per
+> 1000 requests**, from the laptop's ₹10.63 amortised hour. At this ladder's
+> resolution int4 buys no capacity on this profile, so it cannot lower that
+> floor either.
 >
 > Crossover: *pending*, until an API model of matched quality is chosen and
 > scored. Comparing against an API model that scores 13 points higher would
@@ -80,14 +84,19 @@ the threshold itself.
 
 ## What would change this answer
 
-- **A quantised rung that holds quality.** If int4 cuts cost substantially
-  without moving eval score, the crossover moves left and self-hosting gets
-  more attractive at lower volume. The plan predicts the opposite for this
-  task: extraction with exact-match scoring has no partial credit, so it should
-  suffer more than open-ended generation. *Unmeasured.*
-- **Mixed precision by route.** If quantisation hurts `long_in` but not
-  `long_out`, the right answer is neither fp16 nor int4 but both, routed by
-  profile. That would be the interesting finding.
+- **A quantised rung that holds quality.** If int4 cut cost without moving the
+  eval score, the crossover would move left. *Measured, and it does not.* On
+  the task's own profile, `long_in`, int4's knee is the same 2 rps as fp16's,
+  so it cuts no cost, and it scores 16 points lower on slab accuracy. The plan
+  predicted that extraction would suffer, but the mechanism was not the one
+  expected. int4 abstains on 11 rows that fp16 answers, and where it does
+  answer, it agrees with fp16. Its one real gain is on `long_out`, which meets
+  a 10 s target at 1 rps where fp16 meets it at no rate.
+- **Mixed precision by route.** int4 is faster on decode-heavy `long_out` and
+  worse on the extraction task, which is the shape that would justify routing
+  by profile. But the harness scores only the extraction task. Whether int4's
+  long answers are good enough is unmeasured, so routing `long_out` to int4
+  would rest on speed alone.
 - **A cheaper API tier at the same quality.** The comparison is against a dated
   price from Project 01's registry; providers cut prices.
 - **Higher utilisation from co-tenancy.** Serving a second workload on the same
