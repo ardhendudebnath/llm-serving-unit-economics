@@ -44,10 +44,11 @@ ENABLE_PREFIX_CACHING="${ENABLE_PREFIX_CACHING:-0}"
 # weights are quantised ahead of time, and pointing MODEL_ID at an fp16 repo
 # with PRECISION=int8 fails at load rather than silently serving fp16.
 #
-# Both quantised rungs use compressed-tensors, from the same publisher. That is
-# deliberate -- see bench/config.py. Serving one rung as AWQ and the other as
-# compressed-tensors would put a quantisation-methodology difference inside a
-# comparison meant to isolate bit width.
+# Both quantised rungs use compressed-tensors, weight-only at group size 128.
+# That is deliberate -- see bench/config.py. Serving one rung as AWQ and the
+# other as compressed-tensors would put a quantisation-methodology difference
+# inside a comparison meant to isolate bit width. The int8 rung is built
+# locally, so its MODEL_ID is a path under /models rather than a hub repo.
 case "$PRECISION" in
   # bfloat16, not float16. The checkpoint is BF16-native, and forcing float16
   # narrows the exponent range enough to risk overflow in attention. The rung

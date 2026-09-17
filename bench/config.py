@@ -337,11 +337,17 @@ class Precision:
     note: str = ""
 
 
-#: **int8 and int4 come from one publisher, in one format, on purpose.**
-#: Mixing an AWQ community repo with a RedHatAI W8A8 would confound precision
-#: with quantisation methodology -- the ladder would be measuring "whoever
-#: quantised it" alongside the bit width, and the headline finding is supposed
-#: to be about the bit width.
+#: **int8 and int4 share one weight format, on purpose.** Both are weight-only
+#: symmetric integer quantisation at group size 128 in compressed-tensors,
+#: served through the same Marlin kernel. Mixing in an AWQ community repo would
+#: confound precision with quantisation methodology, and the headline finding
+#: is supposed to be about the bit width.
+#:
+#: One difference remains, and it is stated rather than hidden: the method.
+#: int4 is RedHatAI's GPTQ checkpoint, while int8 is built here round-to-nearest.
+#: RedHatAI's W8A8 has no kernel on this card, and GPTQ calibration did not fit
+#: in the WSL VM (quantize/w8a16.py). Round-to-nearest is the weaker method, so
+#: it can only make int8 look worse than GPTQ would.
 LADDER: dict[str, Precision] = {
     "fp16": Precision(
         key="fp16",
@@ -359,17 +365,20 @@ LADDER: dict[str, Precision] = {
     "int8": Precision(
         key="int8",
         vllm_quantization="compressed-tensors",
-        repo="RedHatAI/Qwen3-4B-Instruct-2507-quantized.w8a8",
-        weights_gb=5.19,
-        note="W8A8, INT8 weights and activations",
+        # Built locally, not downloaded. Served from
+        # /models/local/Qwen3-4B-Instruct-2507-quantized.w8a16.
+        repo="local/Qwen3-4B-Instruct-2507-quantized.w8a16",
+        # Measured from the built safetensors on 2026-09-17.
+        weights_gb=5.25,
+        note="W8A16 round-to-nearest, INT8 weights; int4's format, a weaker method",
     ),
     "int4": Precision(
         key="int4",
         vllm_quantization="compressed-tensors",
         repo="RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16",
         weights_gb=3.43,
-        # Not AWQ. Same compressed-tensors format as the int8 rung above, from
-        # the same publisher, which is the whole point.
+        # Not AWQ. It shares the int8 rung's compressed-tensors weight format,
+        # which is the whole point. It is GPTQ, where int8 is round-to-nearest.
         note="W4A16, INT4 weights; the rung extraction is expected to suffer on",
     ),
 }

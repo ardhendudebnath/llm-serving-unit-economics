@@ -9,13 +9,13 @@ kind: ConfigMap
 metadata:
   name: vllm-config
 data:
-  # The checkpoint for the precision below. Each rung is a different repo --
-  # int8 and int4 are pre-quantised, not runtime flags -- so MODEL_ID and
+  # The checkpoint for the precision below. Each rung is a different checkpoint
+  # -- int8 and int4 are pre-quantised, not runtime flags -- so MODEL_ID and
   # PRECISION must move together. See docs/models.md and bench/config.py.
   #
-  #   fp16  Qwen/Qwen3-4B-Instruct-2507                        8.04 GB
-  #   int8  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w8a8     5.19 GB
-  #   int4  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16    3.43 GB
+  #   fp16  Qwen/Qwen3-4B-Instruct-2507                             8.04 GB
+  #   int8  /models/local/Qwen3-4B-Instruct-2507-quantized.w8a16    5.25 GB  (built by quantize/)
+  #   int4  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16         3.43 GB
   MODEL_ID: "Qwen/Qwen3-4B-Instruct-2507"
   PRECISION: "fp16"
 

@@ -10,12 +10,21 @@ live call.
 | Rung | Checkpoint | On disk | Format |
 |---|---|---:|---|
 | fp16 | `Qwen/Qwen3-4B-Instruct-2507` | 8.04 GB | BF16 native |
-| int8 | `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w8a8` | 5.19 GB | compressed-tensors, W8A8 |
-| int4 | `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16` | 3.43 GB | compressed-tensors, W4A16 |
+| int8 | built locally: `Qwen3-4B-Instruct-2507-quantized.w8a16` ([`quantize/`](../quantize/)) | 5.25 GB | compressed-tensors, W8A16, round-to-nearest |
+| int4 | `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16` | 3.43 GB | compressed-tensors, W4A16, GPTQ |
 
-All three open, none gated. Sizes are summed from each repo's `.safetensors`
-files, not derived from a parameter count — a quantised checkpoint carries
-scales and packed integer containers that a bytes-per-weight estimate misses.
+Sizes are summed from each checkpoint's `.safetensors` files, not derived from
+a parameter count — a quantised checkpoint carries scales and packed integer
+containers that a bytes-per-weight estimate misses.
+
+> **The int8 rung changed after this page was written.** It was planned as
+> `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w8a8` (5.19 GB, open, ungated).
+> That checkpoint cannot run on this card, because vLLM 0.11.0 has no int8
+> activation kernel for compute capability 12.0
+> ([`FAILED.md`](../results/eval/int8-w8a8/FAILED.md)). The rung is now W8A16,
+> built locally round-to-nearest in the int4 rung's weight format. GPTQ would
+> have matched int4's method exactly, but its calibration did not fit in the
+> WSL VM's 15 GB of RAM. The sections below describe the plan as it was.
 
 ---
 
@@ -95,8 +104,11 @@ that if each rung was produced by different people with different calibration
 data.
 
 RedHatAI publishes both W8A8 and W4A16 for this exact base model, in
-`compressed-tensors`. `tests/test_ladder.py` asserts the publisher and format
-match, so a later "convenient" substitution fails the build.
+`compressed-tensors`. That was the plan. What survived contact with the card
+is one *format* rather than one publisher (see the note above).
+`tests/test_ladder.py` now asserts that the formats match and that the int8
+rung states its method, so a later "convenient" substitution still fails the
+build.
 
 ### 4. Non-thinking, on purpose
 
@@ -139,7 +151,7 @@ at all, which is what forced the move to 4B in the first place.
   Magic's) quantisation programme and is the canonical `compressed-tensors`
   publisher, and their higher-traffic siblings for other models are widely
   used, so provenance is strong even where usage is thin. Both were checked to
-  exist and be ungated; neither has been *run* yet.
+  exist and be ungated. Once run, the W4A16 served and the W8A8 did not.
 - **The parameter counts read higher for quantised rungs** (4.41B and 4.44B
   against 4.02B). That is not a bigger model — the safetensors metadata counts
   packed int32 containers and per-group scales alongside the weights.
@@ -147,6 +159,6 @@ at all, which is what forced the move to 4B in the first place.
   forcing float16 would narrow the exponent range enough to risk overflow in
   attention. The rung keeps the name the plan uses; what runs is 16-bit native,
   and every report says which.
-- **Nothing here has been served yet.** These are existence, size and format
-  checks. Whether vLLM 0.11.0 loads all three on this card is the next thing to
-  find out, and the fp16 rung is the one with the least headroom.
+- **Served since.** fp16 and the W4A16 int4 rung loaded and ran on this card.
+  The W8A8 did not, which is why the int8 rung is built locally. The measured
+  numbers are in the README, not here.

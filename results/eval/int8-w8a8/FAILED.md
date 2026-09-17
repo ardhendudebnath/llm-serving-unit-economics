@@ -33,11 +33,15 @@ Read from the installed vLLM 0.11.0 source rather than recalled:
 ## What the 8-bit rung became
 
 **W8A16**: int8 weights, 16-bit activations, served through Marlin. No
-publisher offers a W8A16 of this model, so `quantize/run.sh` builds it with
-RedHatAI's own W4A16 recipe, changing only the bit width. Both quantised rungs
-are then weight-only GPTQ at group size 128 on the same calibration set, and
-differ in bit width alone. That isolates bit width more cleanly than W8A8
-against W4A16 would have.
+publisher offers a W8A16 of this model, so `quantize/run.sh` builds one in the
+int4 rung's weight format: int8 in place of int4, symmetric, group size 128,
+MSE observer.
+
+It is built round-to-nearest rather than with GPTQ. RedHatAI's recipe is GPTQ,
+but three calibration sizes, down to 256 samples of 2,048 tokens, all ran the
+WSL VM out of memory. So the two quantised rungs differ in method as well as
+bit width. Round-to-nearest is the weaker method, so that difference can only
+make int8 look worse than GPTQ at 8 bits would. See `quantize/w8a16.py`.
 
 The cost is that the ladder no longer measures int8 *activation*
 quantisation, which is where a W8A8 checkpoint's prefill speed-up would come

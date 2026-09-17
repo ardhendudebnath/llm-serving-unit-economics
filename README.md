@@ -394,11 +394,12 @@ Written before the measurements, so none of it is retrofitted.
   then fails on its first forward pass. vLLM 0.11.0's only int8 activation
   kernel on CUDA is CUTLASS, which does not support compute capability 12.0
   ([`FAILED.md`](results/eval/int8-w8a8/FAILED.md)). So the ladder does not
-  measure int8 *activation* quantisation. The 8-bit rung is built here with
-  RedHatAI's own W4A16 recipe at 8 bits ([`quantize/`](quantize/)). It is
-  calibrated on fewer, shorter samples than the recipe's 1,024 × 8,192,
-  because that exhausts the WSL VM's 15 GB of RAM. The settings actually used
-  are recorded in the checkpoint's `provenance.json`.
+  measure int8 *activation* quantisation. The 8-bit rung is built here in the
+  int4 rung's weight format (int8, group 128, MSE observer), but
+  round-to-nearest rather than GPTQ ([`quantize/`](quantize/)). GPTQ
+  calibration ran the WSL VM's 15 GB out of memory at every size tried. So
+  int8 and int4 differ in method as well as bits, and that difference cuts one
+  way: round-to-nearest is the weaker method.
 - **vLLM runs in WSL2, and says so itself.** It logs `Using 'pin_memory=False'
   as WSL is detected. This may slow down the performance.` Host-to-device
   transfers therefore cannot use pinned memory, which costs most on the

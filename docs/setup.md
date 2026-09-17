@@ -378,8 +378,12 @@ int8 and int4 are **not runtime flags**. vLLM loads pre-quantised weights, so
 each rung needs its own checkpoint:
 
 - **fp16** — the base repo.
-- **int8** — a `compressed-tensors` W8A8 checkpoint.
-- **int4** — an AWQ checkpoint.
+- **int8** — a `compressed-tensors` checkpoint. On this card it has to be
+  weight-only (W8A16). vLLM 0.11.0 has no int8 activation kernel for compute
+  capability 12.0, so a W8A8 checkpoint loads and then fails
+  (`results/eval/int8-w8a8/FAILED.md`).
+- **int4** — a `compressed-tensors` W4A16 checkpoint, in the same weight format
+  as the int8 rung.
 
 Confirm all three exist for the chosen model *before* starting, and record the
 exact repo ids. If a rung has no checkpoint, that rung is **missing from the

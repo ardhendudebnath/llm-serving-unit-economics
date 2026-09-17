@@ -87,16 +87,19 @@ def test_reserving_the_full_context_window_would_fit_nothing():
 
 # ------------------------------------------------- comparing the right thing --
 
-def test_both_quantised_rungs_share_a_publisher_and_a_format():
+def test_both_quantised_rungs_share_a_format_and_state_their_method():
     """Otherwise the ladder measures the quantiser, not the bit width.
 
-    Mixing an AWQ community checkpoint with a RedHatAI W8A8 would put a
-    methodology difference inside the one comparison the project exists to
-    make.
+    int4 is RedHatAI's GPTQ checkpoint. int8 is built here round-to-nearest in
+    the same weight format, because W8A8 has no kernel on this card and GPTQ
+    calibration did not fit in memory. The format has to match, and the one
+    method difference left has to be stated wherever the rung is described.
     """
     int8, int4 = get_precision("int8"), get_precision("int4")
-    assert int8.repo.split("/")[0] == int4.repo.split("/")[0] == "RedHatAI"
     assert int8.vllm_quantization == int4.vllm_quantization == "compressed-tensors"
+    assert int4.repo.startswith("RedHatAI/") and int4.repo.endswith(".w4a16")
+    assert int8.repo.startswith("local/") and int8.repo.endswith(".w8a16")
+    assert "round-to-nearest" in int8.note
 
 
 def test_every_rung_names_its_own_checkpoint():
