@@ -9,6 +9,9 @@ classifying Indian goods into the GST slab that is *currently* in force, after
 two restructures in under two years. That project scores quality. This one adds
 latency and cost, so all three sit in the same frame.
 
+The write-up: [What it actually costs to self-host Qwen3-4B for GST
+classification](docs/post.md).
+
 > **Status: the whole ladder is measured. The crossover waits on an API model
 > to compare against.**
 >
