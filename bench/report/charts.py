@@ -83,8 +83,14 @@ def crossover_chart(
     peak_to_mean: float = 1.0,
     currency: str = "INR",
     title: str | None = None,
+    caveat: str | None = None,
 ) -> Path:
     """Self-hosted vs API monthly cost against request volume.
+
+    `caveat` is drawn inside the plot, boxed, for anything a reader must not
+    miss, such as an API model that has not been scored on the task. It goes
+    on the image rather than in the surrounding text, because a chart like
+    this gets shared without its README.
 
     Returns the path written. Raises `UnpricedError` upstream if the GPU rate
     has not been read from a provider -- this chart cannot be drawn from an
@@ -182,6 +188,12 @@ def crossover_chart(
         "beyond the peak-to-mean ratio. One replica, no HA."
     )
     fig.text(0.01, -0.02, footnote, fontsize=7.5, color="#57606a", va="top")
+
+    if caveat:
+        ax.text(0.99, 0.03, caveat, transform=ax.transAxes, ha="right",
+                va="bottom", fontsize=9, color=API_COLOUR, zorder=6,
+                bbox={"boxstyle": "round,pad=0.5", "facecolor": "white",
+                      "edgecolor": API_COLOUR, "alpha": 0.95})
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=160, bbox_inches="tight", facecolor="white")
