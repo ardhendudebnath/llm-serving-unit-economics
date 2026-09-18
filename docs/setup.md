@@ -487,8 +487,8 @@ live container at 10.88.0.3 had received none.
 docker build -t llm-serving:local serving/
 
 docker run -d --name vllm --gpus all -p 8000:8000 --shm-size 2g \
-  -e MODEL_ID=<the fp16 repo> \
-  -e PRECISION=fp16 \
+  -e MODEL_ID=<the int4 repo> \
+  -e PRECISION=int4 \
   -e MAX_MODEL_LEN=4096 \
   -e MAX_NUM_SEQS=16 \
   -e GPU_MEMORY_UTILIZATION=0.85 \
