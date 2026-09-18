@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from bench.config import LAPTOP
 from bench.metrics import ERROR_CEILING
 
 DASHBOARD = Path("deploy/observability/grafana-dashboard.json")
@@ -106,7 +107,9 @@ def test_no_panel_runs_off_the_24_column_grid(dashboard):
     [
         # RED
         "vllm:request_success_total",
-        "vllm:request_failure_total",
+        # Failures come from the API server's HTTP counter: vLLM 0.11.0 has no
+        # vllm:request_failure_total.
+        "http_requests_total",
         "vllm:e2e_request_latency_seconds_bucket",
         # GPU — the figure that decides whether the cost number is honest
         "DCGM_FI_DEV_GPU_UTIL",
@@ -114,7 +117,7 @@ def test_no_panel_runs_off_the_24_column_grid(dashboard):
         # Serving internals
         "vllm:num_requests_waiting",
         "vllm:num_requests_running",
-        "vllm:gpu_cache_usage_perc",
+        "vllm:kv_cache_usage_perc",
         "vllm:prompt_tokens_total",
         "vllm:generation_tokens_total",
         "vllm:time_to_first_token_seconds_bucket",
@@ -215,12 +218,16 @@ def test_the_cost_alerts_are_labelled_as_cost(rules):
     assert _alerts(rules)["GpuUnderutilisedCostWaste"]["labels"]["severity"] == "ticket"
 
 
-def test_the_gpu_rate_is_not_silently_set_to_something_invented(rules):
-    # Same discipline as bench/config.py: the hourly rate stays at zero, and
-    # visibly labelled as unset, until someone reads one from a provider.
+def test_the_gpu_rate_is_the_sourced_one_not_an_invented_one(rules):
+    # Same discipline as bench/config.py: the rate on the dashboard is the
+    # laptop's amortised rate, derived there from sourced inputs, and the same
+    # figure the crossover uses. Never a number typed in here.
     rate = next(
         r for g in rules["groups"] for r in g["rules"]
         if r.get("record") == "gpu:hourly_rate_usd"
     )
-    assert rate["expr"].strip() == "vector(0)"
-    assert "unset" in rate["labels"]["note"]
+    match = re.fullmatch(r"vector\(([0-9.]+)\)", rate["expr"].strip())
+    assert match, "gpu:hourly_rate_usd must be a literal vector(<usd per hour>)"
+    assert float(match.group(1)) == pytest.approx(
+        LAPTOP.priced_gpu().market_usd_per_hour, abs=5e-4
+    )

@@ -23,8 +23,8 @@
         "name": "slo",
         "label": "p95 SLO (seconds)",
         "type": "constant",
-        "query": "5",
-        "current": { "text": "5", "value": "5" },
+        "query": "10",
+        "current": { "text": "10", "value": "10" },
         "hide": 0,
         "description": "Must match the SLO the cost curves were computed against. Changing it here does not change the published crossover."
       }
@@ -57,7 +57,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum(rate(vllm:request_failure_total[5m]))",
+          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\", status!=\"2xx\"}[5m]))",
           "legendFormat": "failed"
         }
       ]
@@ -87,7 +87,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(vllm:request_failure_total[5m])) / clamp_min(sum(rate(vllm:request_success_total[5m])) + sum(rate(vllm:request_failure_total[5m])), 1)",
+          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\", status!=\"2xx\"}[5m])) / clamp_min(sum(rate(http_requests_total{handler=\"/v1/chat/completions\"}[5m])), 1e-9)",
           "legendFormat": "error rate"
         }
       ]
@@ -108,7 +108,7 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "red", "value": 5 }
+              { "color": "red", "value": 10 }
             ]
           }
         },
@@ -297,7 +297,7 @@
         "overrides": []
       },
       "targets": [
-        { "refId": "A", "expr": "avg(vllm:gpu_cache_usage_perc)", "legendFormat": "KV cache" }
+        { "refId": "A", "expr": "avg(vllm:kv_cache_usage_perc)", "legendFormat": "KV cache" }
       ]
     },
     {

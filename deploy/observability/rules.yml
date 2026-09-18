@@ -4,10 +4,17 @@
 # is written next to it. A rule file full of round numbers is a rule file
 # nobody tuned, and it will either page constantly or never fire.
 #
-# Metric names are vLLM's own (the `vllm:` prefix) plus DCGM's for the GPU
-# itself. vLLM cannot report GPU utilisation -- it does not know -- so the
-# number that decides whether the cost figures are honest comes from
-# dcgm-exporter, and its absence is itself an alert.
+# Metric names are vLLM's own (the `vllm:` prefix and the API server's
+# http_requests_total) plus DCGM's for the GPU itself. vLLM cannot report GPU
+# utilisation -- it does not know -- so the number that decides whether the
+# cost figures are honest comes from dcgm-exporter, and its absence is itself
+# an alert.
+#
+# Every vLLM name here is checked against the families a live vLLM 0.11.0
+# server exports (tests/test_observability_metrics.py). Two names from older
+# vLLM releases were in this file until that check existed. A query over a
+# metric that does not exist returns nothing, so their alerts could never
+# fire, silently.
 
 groups:
   # ---------------------------------------------------------------- cost ---
@@ -19,13 +26,14 @@ groups:
       # bench/config.py -- the two must agree, and a mismatch means the
       # dashboard and the published curves disagree about the same deployment.
       #
-      # It is a market rate, not what was actually paid: these measurements ran
-      # on free-tier hours, and a dashboard reporting zero would be useless to
-      # anyone deciding whether to self-host.
+      # The measurements ran on an owned laptop, so this is its amortised rate,
+      # priced as available around the clock: ₹10.63 an hour at ₹88 to the
+      # dollar. It is the same figure the crossover uses
+      # (OwnedHardware.priced_gpu), and a test holds the two together. A
+      # dashboard reporting zero would be useless to anyone deciding whether
+      # to self-host.
       - record: gpu:hourly_rate_usd
-        expr: vector(0)
-        labels:
-          note: "unset -- read a provider rate and date it before trusting cost panels"
+        expr: vector(0.1208)
 
       - record: serving:requests_per_second:rate5m
         expr: sum(rate(vllm:request_success_total[5m]))
@@ -70,12 +78,12 @@ groups:
       # firing on a single scrape would page for one slow burst that
       # continuous batching absorbed on its own.
       - alert: LatencyP95OverSLO
-        expr: serving:latency_p95_seconds > 5
+        expr: serving:latency_p95_seconds > 10
         for: 5m
         labels:
           severity: page
         annotations:
-          summary: "p95 latency {{ $value | humanizeDuration }} is over the 5s SLO"
+          summary: "p95 latency {{ $value | humanizeDuration }} is over the 10s SLO"
           description: >-
             Sustained for 5 minutes. Check queue depth first: if
             vllm:num_requests_waiting is climbing this is saturation and the
@@ -88,11 +96,18 @@ groups:
       # regardless of latency (see bench.metrics.find_knee): a server meeting
       # its latency target by shedding requests has not met its target. The
       # alert and the benchmark therefore use one definition of "working".
+      #
+      # Read from the API server's HTTP counter, because vLLM 0.11.0 has no
+      # failure counter: its request_success_total counts finished requests by
+      # reason, and a request that fails before reaching the engine is never
+      # in it. A non-2xx response is an error, as it is in the load generator.
+      # The denominator is floored at a tiny rate only to avoid dividing by
+      # zero; flooring it at 1 request/s would understate the error rate for
+      # any lighter traffic.
       - alert: ErrorRateAboveOnePercent
         expr: |
-          sum(rate(vllm:request_failure_total[5m]))
-            / clamp_min(sum(rate(vllm:request_success_total[5m]))
-                        + sum(rate(vllm:request_failure_total[5m])), 1)
+          sum(rate(http_requests_total{handler="/v1/chat/completions", status!="2xx"}[5m]))
+            / clamp_min(sum(rate(http_requests_total{handler="/v1/chat/completions"}[5m])), 1e-9)
           > 0.01
         for: 5m
         labels:
@@ -104,7 +119,7 @@ groups:
       # saturates vLLM starts preempting sequences, which shows up as a
       # latency tail long before it shows up as an error.
       - alert: KVCacheNearlyExhausted
-        expr: vllm:gpu_cache_usage_perc > 0.95
+        expr: vllm:kv_cache_usage_perc > 0.95
         for: 10m
         labels:
           severity: ticket
