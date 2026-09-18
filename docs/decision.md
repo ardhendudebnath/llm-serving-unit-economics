@@ -30,12 +30,13 @@ irrelevant and the answer is "API", at any volume. On a task where the current
 frontier reference scores ~54 % slab accuracy with a 14-point run-to-run
 spread, this is a live possibility rather than a formality.
 
-> Measured at fp16 and int4 (int8 is being rebuilt): Qwen3-4B-Instruct-2507
-> scores **41.4 %** slab accuracy at fp16 (39.3–42.9 % over five runs) and
-> **25.0 %** at int4, against about 54 % for the frontier reference. Whether
-> fp16's gap of about 13 points is acceptable depends on the task, not the
-> server. It has to be settled before the cost comparison means anything.
-> int4 is out at any price: the quality gate blocks it.
+> Measured across the ladder: Qwen3-4B-Instruct-2507 scores **41.4 %** slab
+> accuracy at fp16 (39.3–42.9 % over five runs), **41.4 %** at int8 (the same
+> five-run mean) and **25.0 %** at int4, against about 54 % for the frontier
+> reference. Whether a gap of about 13 points is acceptable depends on the
+> task, not the server, and it has to be settled before the cost comparison
+> means anything. int8 is fp16's equal on quality. int4 is out at any price:
+> the quality gate blocks it.
 
 ### 2. What is the volume, and where is the crossover?
 
@@ -47,11 +48,11 @@ is not working. Above it, marginal cost per request approaches the GPU rate
 divided by capacity, which is where self-hosting wins decisively.
 
 > Capacity, measured: one card serves `long_in` at **2 rps** within a 10 s
-> p95, at fp16 and at int4 alike. If traffic were perfectly flat, that is
-> 5.26 M requests a month. The floor cost at full utilisation is **₹1.48 per
-> 1000 requests**, from the laptop's ₹10.63 amortised hour. At this ladder's
-> resolution int4 buys no capacity on this profile, so it cannot lower that
-> floor either.
+> p95 at every rung: fp16, int8 and int4. If traffic were perfectly flat, that
+> is 5.26 M requests a month. The floor cost at full utilisation is **₹1.48
+> per 1000 requests**, from the laptop's ₹10.63 amortised hour. At this
+> ladder's resolution quantisation buys no capacity on this profile, so it
+> cannot lower that floor.
 >
 > Crossover: *pending*, until an API model of matched quality is chosen and
 > scored. Comparing against an API model that scores 13 points higher would
@@ -84,18 +85,21 @@ the threshold itself.
 
 ## What would change this answer
 
-- **A quantised rung that holds quality.** If int4 cut cost without moving the
-  eval score, the crossover would move left. *Measured, and it does not.* On
-  the task's own profile, `long_in`, int4's knee is the same 2 rps as fp16's,
-  so it cuts no cost, and it scores 16 points lower on slab accuracy. The plan
-  predicted that extraction would suffer, but the mechanism was not the one
-  expected. int4 abstains on 11 rows that fp16 answers, and where it does
-  answer, it agrees with fp16. Its one real gain is on `long_out`, which meets
-  a 10 s target at 1 rps where fp16 meets it at no rate.
-- **Mixed precision by route.** int4 is faster on decode-heavy `long_out` and
-  worse on the extraction task, which is the shape that would justify routing
-  by profile. But the harness scores only the extraction task. Whether int4's
-  long answers are good enough is unmeasured, so routing `long_out` to int4
+- **A quantised rung that holds quality and adds capacity.** It would take
+  both to move the crossover. *Measured, and neither rung does both.* int8
+  holds quality (the same five-run mean as fp16), but its `long_in` knee is the
+  same 2 rps, so it cuts no cost on the task's own profile. int4 has the same
+  knee and scores 16 points lower. The plan predicted that extraction would
+  suffer at low bit width, but not the mechanism: int4 abstains on 11 rows that
+  fp16 answers, and where it does answer, it agrees with fp16. What
+  quantisation does buy is decode speed. `long_out` meets a 10 s target at
+  0.25 rps at int8 and 1 rps at int4, where fp16 meets it at no rate.
+- **Mixed precision by route.** int8 already removes most of the case for it.
+  int8 matches fp16 on the extraction task and more than halves the time of a
+  768-token reply, though part of that is the power cap (see the README). So
+  on this card int8 is the better single choice. Routing `long_out` to int4
+  would buy more decode speed. But the harness scores only the extraction task,
+  so whether int4's long answers are good enough is unmeasured, and that route
   would rest on speed alone.
 - **A cheaper API tier at the same quality.** The comparison is against a dated
   price from Project 01's registry; providers cut prices.

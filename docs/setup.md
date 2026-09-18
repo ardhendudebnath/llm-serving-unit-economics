@@ -429,6 +429,40 @@ vmIdleTimeout=-1
 Then `wsl --shutdown` to apply. Verify by reading `ActiveEnterTimestamp` in two
 separate commands a few seconds apart — the timestamp must not change.
 
+## 4c. After the laptop sleeps: stale port forwarding
+
+**If `localhost:8000` stops answering while vLLM says it is running**, check the
+forwarding rules before touching the server. A container that dies while the
+laptop sleeps can leave its netavark rules behind. The next container gets
+rules of its own, but they sit *behind* the stale ones. Every request is then
+forwarded to the dead container's address and times out.
+
+The symptom: `podman logs` ends in `Application startup complete`, and the
+health check succeeds from inside the container and on the container's own IP,
+but fails on `localhost`:
+
+```bash
+podman exec vllm-serving python3 -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/health').status)"
+curl -s -o /dev/null -w '%{http_code}\n' "http://$(podman inspect -f '{{.NetworkSettings.IPAddress}}' vllm-serving):8000/health"
+curl -s -m 5 -o /dev/null -w '%{http_code}\n' http://localhost:8000/health
+```
+
+The tell is two DNAT rules for the port, one of them to an address no running
+container holds, and that one carrying all the packet counts:
+
+```bash
+iptables -t nat -S | grep -- '--dport 8000'
+nft list ruleset | grep 'dport 8000'
+```
+
+`podman network reload` does not help: it re-adds the live container's rules
+and leaves the stale ones in front. Either copy each stale line from
+`iptables -t nat -S` (the DNAT to the old address, and the jump commented with
+the old container id) and run it with `-A` replaced by `-D`, or restart the VM
+with `wsl --terminate Ubuntu-24.04`, which clears every rule. Seen here on
+2026-09-18: the stale rule had forwarded 7,281 packets to 10.88.0.2, while the
+live container at 10.88.0.3 had received none.
+
 ## 5. Run it
 
 ```bash

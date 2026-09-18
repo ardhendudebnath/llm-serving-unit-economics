@@ -9,13 +9,14 @@ classifying Indian goods into the GST slab that is *currently* in force, after
 two restructures in under two years. That project scores quality. This one adds
 latency and cost, so all three sit in the same frame.
 
-> **Status: fp16 and int4 measured; int8 being rebuilt (week 1 of 6).**
+> **Status: the whole ladder is measured. The crossover waits on an API model
+> to compare against.**
 >
-> fp16 and int4 have both been served, load-tested on all three workload
-> profiles and scored five times on Project 01's harness. Their numbers are
-> below. int8 is not: RedHatAI's W8A8 checkpoint has no kernel on this card, so
-> the 8-bit rung is being built as W8A16 instead (see Limitations). The
-> crossover chart and the headline are still absent rather than estimated.
+> fp16, int8 and int4 have each been served, load-tested on all three workload
+> profiles and scored five times on Project 01's harness. Their numbers and
+> charts are below. The crossover chart and the headline are still absent
+> rather than estimated, because they need an API model of matched quality,
+> and none has been chosen or scored yet.
 >
 > This section will keep saying what is missing until nothing is. Project 01
 > holds the same line, and it is the reason its numbers are worth reading.
@@ -44,62 +45,89 @@ as the finding.
 
 | | fp16 | int8 (W8A16) | int4 (W4A16) |
 |---|---|---|---|
-| Latency vs load, three workload profiles | measured | building | measured |
-| Quality on Project 01's harness, five runs | measured | building | measured |
-| GPU utilisation and throttling at each point | measured | building | measured |
-| Cost per 1000 requests, self-hosted vs API | not charted | — | not charted |
+| Latency vs load, three workload profiles | measured | measured | measured |
+| Quality on Project 01's harness, five runs | measured | measured | measured |
+| GPU utilisation and throttling at each point | measured | measured | measured |
+| Cost per 1000 requests, self-hosted vs API | not charted | not charted | not charted |
+
+The cost row waits on the comparison, not on the measurement: the crossover
+needs an API model of matched quality, and none has been chosen or scored.
 
 ### Capacity at a p95 of 10 s
 
+![Capacity by precision](docs/charts/throughput-vs-precision.png)
+
 Qwen3-4B-Instruct-2507 on vLLM 0.11.0, one RTX 5070 Ti Laptop GPU,
 `max_model_len` 4096, 16 sequences, prefix caching off. fp16 is the BF16
-checkpoint; int4 is RedHatAI's W4A16. Each load point runs 150 s of Poisson
-arrivals after 60 s of idle. The knee is the highest arrival rate whose p95
-still meets the SLO.
+checkpoint, int8 is W8A16 built here, and int4 is RedHatAI's W4A16. Each load
+point runs 150 s of Poisson arrivals after 60 s of idle. The knee is the
+highest arrival rate whose p95 still meets the SLO. Latency against load for
+each rung: [fp16](docs/charts/latency-vs-load-fp16.png) ·
+[int8](docs/charts/latency-vs-load-int8.png) ·
+[int4](docs/charts/latency-vs-load-int4.png).
 
-| Profile | fp16 knee | fp16 p95 | int4 knee | int4 p95 | The next rate up |
-|---|---:|---:|---:|---:|---|
-| `short` | **8 rps** | 1.78 s | **8 rps** | 1.88 s | 16 rps fails for both, and the load generator fell behind schedule there (21.9 s at fp16, 662 s at int4), so those points measure the client as much as the server |
-| `long_in` | **2 rps** | 4.82 s | **2 rps** | 3.75 s | 4 rps: fp16 p95 209.7 s, int4 41.1 s |
-| `long_out` | **none** | — | **1 rps** | 8.20 s | fp16 misses even at 0.1 rps (22.3 s); int4 misses at 2 rps (22.1 s) |
+| Profile | fp16 | int8 | int4 |
+|---|---:|---:|---:|
+| `short` | **8 rps** · p95 1.78 s | **8 rps** · p95 1.38 s | **8 rps** · p95 1.88 s |
+| `long_in` | **2 rps** · p95 4.82 s | **2 rps** · p95 4.94 s | **2 rps** · p95 3.75 s |
+| `long_out` | **none** | **0.25 rps** · p95 9.35 s | **1 rps** · p95 8.20 s |
+| one 768-token reply, unloaded | about 20 s | about 9 s | about 5.7 s |
 
-- **`long_in` has no gentle slope.** At fp16, p95 goes 1.64 → 1.91 → 2.48 →
-  4.82 s as the rate doubles from 0.25 to 2 rps, then 209.7 s at 4 rps. int4 is
-  faster at every rate up to 2 rps but also fails at 4, so on this doubling
-  ladder both knees land at 2 rps. int4's 41 s at 4 rps, against fp16's 210 s,
-  says its true knee sits nearer 4; the ladder is too coarse to say how much
-  nearer.
-- **`long_out` is where int4 changes the answer.** At fp16 a lone request takes
-  about 20 s, because 768 decode steps on a power-capped card cost that at any
-  load, so a 10 s total-latency target is unmeetable. int4 produces the same
-  length of reply in about 5.7 s and meets the target up to 1 rps. Decode is
-  bound by memory bandwidth, and 4-bit weights move about a quarter of the
-  bytes per step. Part of the gap may be power state: the card's clock ran at
-  about 39 % of maximum through fp16's `long_out` and about 82 % through
-  int4's. (Read against a 30 s target, fp16's points would put its knee at
-  0.5 rps. That target was chosen after seeing the data, so nothing downstream
-  uses it.)
-- **The card was power-capped for 81–100 % of busy samples** at every knee
+Every rung fails at the next rate up: 16 rps on `short`, 4 rps on `long_in`.
+At 16 rps the load generator also fell behind schedule for fp16 (21.9 s) and
+int4 (662 s), so those two points measure the client as much as the server.
+
+- **Quantisation buys no capacity on the task's own profile.** `long_in` is
+  prefill-bound, and weight-only quantisation mostly saves memory bandwidth,
+  which is what bounds decode. All three knees land at 2 rps. int8 is faster
+  than fp16 at low load but no faster at 2 rps. At 4 rps the rungs do
+  separate, with p95 209.7 s at fp16, 60.3 s at int8 and 41.1 s at int4. That
+  says int4's true knee sits nearer 4, but the doubling ladder is too coarse to
+  say how much nearer.
+- **`long_out` is where quantisation changes the answer.** At fp16 a lone
+  768-token reply takes about 20 s, so a 10 s total-latency target is
+  unmeetable at any load. int8 takes about 9 s and meets the target at
+  0.25 rps; its 0.5 rps point misses by 0.04 s. int4 takes about 5.7 s and
+  meets it up to 1 rps. Decode is bound by memory bandwidth, and 8-bit and
+  4-bit weights move about a half and a quarter of the bytes per step. Part of
+  the gap is power state: the card's clock ran at about 39 % of maximum
+  through fp16's `long_out`, against about 85 % for int8 and 82 % for int4.
+  (Read against a 30 s target, fp16's points would put its knee at 0.5 rps.
+  That target was chosen after seeing the data, so nothing downstream uses
+  it.)
+- **The card was power-capped for 76–100 % of busy samples** at every knee
   above. Every throughput figure here is a floor. See Limitations.
 
 ### Quality on Project 01's harness
 
-Five runs per rung against the same server, greedy decoding, 28 rows:
+![Quality by precision](docs/charts/quality-vs-precision.png)
 
-| Metric | fp16 mean | fp16 range | int4, five runs |
+Five runs per rung against the same server, greedy decoding, 28 rows. Each
+cell is the mean, with the lowest and highest run in brackets:
+
+| Metric | fp16 | int8 | int4 |
 |---|---:|---:|---:|
-| Slab accuracy | 41.4 % | 39.3–42.9 % | 25.0 % |
-| HSN accuracy | 62.9 % | 60.7–64.3 % | 39.3 % |
-| Chapter accuracy | 70.0 % | 67.9–71.4 % | 46.4 % |
+| Slab accuracy | 41.4 % (39.3–42.9) | 41.4 % (39.3–46.4) | 25.0 % |
+| HSN accuracy | 62.9 % (60.7–64.3) | 62.1 % (60.7–64.3) | 39.3 % |
+| Chapter accuracy | 70.0 % (67.9–71.4) | 69.3 % (67.9–71.4) | 46.4 % |
 | Abstention accuracy | 100 % | 100 % | 60.7 % |
-| Stale-slab rate | 5.0 % | 3.6–7.1 % | 3.6 % |
+| Stale-slab rate | 5.0 % (3.6–7.1) | 5.7 % (3.6–7.1) | 3.6 % |
 | Unparseable | 0 % | 0 % | 0 % |
 
-Greedy decoding still moved at fp16: the runs differ by one row out of 28,
-which is 3.57 points. vLLM does not guarantee identical output across
-different batch compositions. That measured spread is the quality gate's
-tolerance. int4 scored identically on all five runs. For scale, the frontier
-reference in Project 01 averages about 54 % on the same rows.
+Greedy decoding still moved. fp16's runs differ by one row out of 28, which is
+3.57 points, and int8's by two. vLLM does not guarantee identical output
+across different batch compositions. fp16's measured spread is the quality
+gate's tolerance. int4 scored identically on all five runs. For scale, the
+frontier reference in Project 01 averages about 54 % on the same rows.
+
+**int8 matches fp16.** Its five-run mean slab accuracy is exactly fp16's. The
+gate passes it ([`gate.md`](results/eval/int8/gate.md)) and shows +5.0
+points, but that compares only the newest run, which was int8's best; the
+mean shows no change. Row by row, int8 gives the same answer as fp16 on 26–28
+of 28 rows against each fp16 run, and never newly abstains
+([`rows-vs-fp16.md`](results/eval/int8/rows-vs-fp16.md)). It was built
+round-to-nearest, the weaker method, so GPTQ could only have closed a gap, and
+there is none to close.
 
 **int4 did not forget the slabs; it stopped answering.** The gate blocks it on
 four metrics, each far outside fp16's noise floor
@@ -390,6 +418,15 @@ Written before the measurements, so none of it is retrofitted.
   SLO". Re-measured after the cooldown, the point is p95 1.09 s and the knee is
   2 rps. The sweep now cools before every point, and the hot version is kept
   under `results/sweeps/contaminated/` as well.
+
+  A third contamination came from outside the benchmark. int8's first `short`
+  point ran at 93 % GPU utilisation and about 250 ms per decode step, while
+  vLLM's own stats showed only 1–8 requests in flight. This card also drives
+  the laptop's display, so any other GPU work on the desktop competes with the
+  server. A browser was later seen holding the GPU, which fits but does not
+  prove it. Re-measured, the point is p95 0.98 s at 21 % utilisation. The
+  sweep's utilisation figure is the whole card's, so it cannot tell the
+  server's work from anyone else's.
 - **The 8-bit rung is W8A16, not W8A8.** RedHatAI's W8A8 checkpoint loads and
   then fails on its first forward pass. vLLM 0.11.0's only int8 activation
   kernel on CUDA is CUTLASS, which does not support compute capability 12.0
