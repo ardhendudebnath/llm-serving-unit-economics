@@ -92,13 +92,19 @@ spec:
             - name: dshm
               mountPath: /dev/shm
 
+          # Sized to this node, not to a cloud GPU VM. The node is a WSL2 VM
+          # with about 15.3 GiB allocatable, so the earlier request of 16 GiB
+          # left the pod Pending on "Insufficient memory" with nothing wrong
+          # in the pod itself. The limit leaves the node about a gigabyte for
+          # k3s and the kubelet. The GPU request needs the device plugin
+          # (nvidia-device-plugin.yaml) to be running.
           resources:
             limits:
               nvidia.com/gpu: 1
-              memory: 24Gi
+              memory: 14Gi
             requests:
               nvidia.com/gpu: 1
-              memory: 16Gi
+              memory: 8Gi
               cpu: "4"
 
           # --- Probes -------------------------------------------------------
