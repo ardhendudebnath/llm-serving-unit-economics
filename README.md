@@ -12,14 +12,14 @@ latency and cost, so all three sit in the same frame.
 The write-up: [What it actually costs to self-host Qwen3-4B for GST
 classification](docs/post.md).
 
-> **Status: the whole ladder is measured. The crossover waits on an API model
-> to compare against.**
+> **Status: the whole ladder is measured. The crossover is priced, but not yet
+> quality-matched.**
 >
 > fp16, int8 and int4 have each been served, load-tested on all three workload
 > profiles and scored five times on Project 01's harness. Their numbers and
-> charts are below. The crossover chart and the headline are still absent
-> rather than estimated, because they need an API model of matched quality,
-> and none has been chosen or scored yet.
+> charts are below. The crossover is drawn against Claude Haiku 4.5's list
+> price and labelled as not quality-matched, on the chart itself, because
+> Haiku has not been scored on this task.
 >
 > This section will keep saying what is missing until nothing is. Project 01
 > holds the same line, and it is the reason its numbers are worth reading.
@@ -28,19 +28,29 @@ classification](docs/post.md).
 
 ## The headline
 
-*Empty until measured.* It will read like this, with a chart underneath:
+> Self-hosting Qwen3-4B on an RTX 5070 Ti laptop costs less than Claude Haiku
+> 4.5's list price above **about 47,000 `long_in` requests a month**, at a p95
+> of **10 s**, at fp16 or int8 alike. **This is not quality-matched**: this
+> model gets 41.4 % of slabs right, and Haiku has not been scored on the task.
 
-> Self-hosting beats the API above **N requests/month** at a p95 target of
-> **X ms**, on a *[GPU]* at *[precision]*.
+![Self-hosted vs Claude Haiku 4.5 on long_in at int8](docs/charts/crossover-int8.png)
 
-**It may well read the other way**, and that is a real possible outcome rather
-than a hedge. The crossover exists only when the API's per-request price is
-above the self-hosted marginal cost. A small open-weight model that scores
-poorly on this task cannot be compared on price against a frontier API model
-that scores well — the honest comparison matches on quality *first*, then
-compares cost, and it is entirely possible that nothing self-hostable on one
-GPU clears the quality bar. If so, that is the finding and it will be published
-as the finding.
+- **The break-even sits at 0.9 % GPU utilisation.** The laptop costs ₹7,762 a
+  month at its amortised rate, whether it serves or not. That is what Haiku
+  would charge for 47,423 `long_in` requests at ₹0.164 each, from its list
+  price of $1 and $5 per million input and output tokens (read 2026-06-24).
+  The self-hosted floor is ₹0.0015 a request, about 110 times less.
+- **It is the same at every precision.** One card covers the crossover volume
+  about a hundred times over, so its capacity never binds there, and
+  quantisation cannot move the crossover. int4 is not drawn: its quality gate
+  verdict is blocked, and the report publishes no cost for a rung that fails
+  on quality.
+- **Why it is only a price comparison.** The honest comparison matches on
+  quality first, then compares cost. A 41 % model's cost set against the price
+  of a model that may score far higher prices two different products. It is
+  also charged this model's token counts rather than Haiku's own, prices the
+  laptop as if dedicated around the clock, and assumes flat traffic. Scoring
+  Haiku on Project 01, for about ₹40, would make it a real answer.
 
 ---
 
@@ -51,10 +61,10 @@ as the finding.
 | Latency vs load, three workload profiles | measured | measured | measured |
 | Quality on Project 01's harness, five runs | measured | measured | measured |
 | GPU utilisation and throttling at each point | measured | measured | measured |
-| Cost per 1000 requests, self-hosted vs API | not charted | not charted | not charted |
+| Crossover against an API | charted | charted | withheld: gate blocked |
 
-The cost row waits on the comparison, not on the measurement: the crossover
-needs an API model of matched quality, and none has been chosen or scored.
+The crossover is priced against Claude Haiku 4.5's list price and is not
+quality-matched. See the headline.
 
 ### Capacity at a p95 of 10 s
 

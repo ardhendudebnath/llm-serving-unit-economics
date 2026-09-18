@@ -1,7 +1,7 @@
 # What it actually costs to self-host Qwen3-4B for GST classification
 
-*Draft. Every number below comes from a measurement in this repository; the
-one number still missing is marked as missing.*
+*Draft. Every number below comes from a measurement in this repository. The
+one comparison that is not yet quality-matched is marked as such.*
 
 The question every team serving a model gets asked is short: what does
 inference cost us, and would self-hosting be cheaper? I wanted an answer in
@@ -85,13 +85,21 @@ abstaining. I have not tested that.
 
 ## Would I self-host this?
 
-That depends on a number I have not published: the crossover against an API.
-The honest comparison matches quality first and compares cost second. Project
-01's frontier reference scores about 54 % on this task, well above this
-model's 41 %. Claude Haiku 4.5, which Project 01's registry prices, has not
-been scored on this task yet. Comparing a 41 % model's cost against the price
-of a model that scores much higher would price two different products. So the
-crossover waits on that scoring run.
+On price alone, yes, above about 47,000 requests a month. Against Claude
+Haiku 4.5's list price, the laptop's ₹7,762 a month (the amortised rate,
+around the clock) buys what Haiku would charge for 47,423 `long_in` requests
+at ₹0.164 each. At that volume the GPU is busy 0.9 % of the time. The API
+charges about 110 times the self-hosted floor per request, so even a nearly
+idle card wins.
+
+But that is price alone, and the chart says so on its face. The honest
+comparison matches quality first. This model gets 41.4 % of slabs right,
+Project 01's frontier reference gets about 54 %, and Haiku has not been scored
+on this task. If Haiku lands well above 41 %, the chart compares two different
+products, and quality decides the question rather than cost. Scoring it would
+cost about ₹40, and it is the next thing to do.
+
+![Self-hosted vs Claude Haiku 4.5, not quality-matched](charts/crossover-int8.png)
 
 What the measurements already settle:
 
