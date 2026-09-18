@@ -13,12 +13,15 @@ Budget: **₹5,000.** Tracked here against actual spend.
 |---|---|---|---:|---:|---:|
 | 2026-09-06 | Repo, cost model, load generator, corpora | — | 0 | 0 | 0 |
 | 2026-09-07 | Serving container, k8s, alerts, quality gate | — | 0 | 0 | 0 |
+| 2026-09-08 – 09-18 | The ladder measured: 47 load points, 17 contaminated points re-measured, 15 harness runs | own laptop | 4.7 | 0 | 0 |
 
-**₹0 spent so far**, because nothing built to date needs a GPU. That is the
-plan's fourth cost rule working as intended: containers, manifests,
-Prometheus rules, the CI gate, the load generator and the whole cost model are
-CPU-side plumbing, and every one of them is finished and tested before a single
-GPU-hour is bought.
+**₹0 of cloud spend.** The GPU work ran on a laptop that was already owned.
+The only marginal cash cost is electricity: 4.72 GPU-hours at no more than
+140 W is at most 0.66 kWh, about ₹5 at ₹8/kWh.
+
+That follows the plan's fourth cost rule. Containers, manifests, Prometheus
+rules, the CI gate, the load generator and the whole cost model are CPU-side
+plumbing, and each was finished and tested before any GPU time was spent.
 
 ## GPU hours: a laptop already owned
 
@@ -45,16 +48,34 @@ and both matter:
 | RTX 5070 Ti Laptop GPU | 12,227 MiB | 140 W | ₹0 |
 
 The only marginal cash cost is electricity: at most 0.14 kWh per GPU-hour,
-about ₹1.12 at ₹8/kWh. The measured GPU-hours are totalled below once the
-ladder is finished.
+about ₹1.12 at ₹8/kWh. The measured GPU-hours are totalled below.
 
 ## What the GPU time was worth
 
-Filled in once the ladder is finished, from measured GPU-hours × the ₹10.63
-amortised hourly rate. This is the honest answer to "what did this project
-cost, counting the laptop", and it is worth publishing alongside ₹0 of cloud
-spend. Owning the card is a constraint this project worked within, not a claim
-that benchmarking is free.
+The committed records account for **4.72 GPU-hours**:
+
+| | Items | Hours |
+|---|---:|---:|
+| Published sweeps, with each point's warm-up and cooldown | 47 points | 3.40 |
+| Contaminated points, re-measured and kept as evidence | 17 points | 0.83 |
+| Harness runs, five per rung | 15 runs | 0.49 |
+
+At the ₹10.63 amortised hour that is worth **about ₹50**. The contaminated
+points are 18 % of it: about ₹9 of GPU time spent measuring a card that was
+not in the state the measurement claimed.
+
+That is a floor, not the total. Server bring-ups, the W8A16 builds (three
+failed GPTQ attempts and the 88-second round-to-nearest one) and debugging
+appear in no record, so they are left out rather than guessed at. The hours
+are recomputed from the committed files: each load point's measured duration
+plus its 15 s warm-up (and 60 s cooldown in the cooled sweeps), and each
+harness run's recorded start and finish. An evidence copy of a published sweep
+counts only the point it replaced.
+
+This is the honest answer to "what did this project cost, counting the
+laptop", and it is worth publishing alongside ₹0 of cloud spend. Owning the
+card is a constraint this project worked within, not a claim that
+benchmarking is free.
 
 ## Discipline notes
 
