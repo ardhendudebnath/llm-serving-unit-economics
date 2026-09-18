@@ -332,7 +332,19 @@ clears the baseline. The full build → serve → score loop exists as `gate-liv
 conditioned on a GPU runner actually existing rather than left permanently
 pending.
 
-*Screenshot of a blocked PR: pending the first measured run.*
+**What it has caught: the int4 rollout.** The branch
+[`demo/int4-regression`](https://github.com/ardhendudebnath/llm-serving-unit-economics/tree/demo/int4-regression)
+does what a real int4 rollout would do: it switches the ConfigMap to RedHatAI's
+W4A16 checkpoint and attaches one of the int4 harness runs. Run as CI runs it,
+the guard is satisfied, because a scored run is attached, and hands the change
+to the compare step. That step blocks it on four metrics, each far outside the
+fp16 noise floor: slab accuracy −16.4 points, HSN −23.6, chapter −23.6 and
+abstention −39.3 ([the full table](results/eval/int4/gate.md)). The row
+comparison explains the loss: int4 declines to answer on 11 rows that fp16
+answers.
+
+*Screenshot of the blocked pull request: pending, until that branch is opened
+as a PR on GitHub.*
 
 ---
 
