@@ -57,7 +57,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\", status!=\"2xx\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\", status!=\"2xx\"}[5m])) or vector(0)",
           "legendFormat": "failed"
         }
       ]
@@ -73,7 +73,7 @@
         "defaults": {
           "unit": "percentunit",
           "min": 0,
-          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "line" } },
+          "custom": { "fillOpacity": 10, "axisSoftMax": 0.02, "thresholdsStyle": { "mode": "line" } },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -87,7 +87,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\", status!=\"2xx\"}[5m])) / clamp_min(sum(rate(http_requests_total{handler=\"/v1/chat/completions\"}[5m])), 1e-9)",
+          "expr": "(sum(rate(http_requests_total{handler=\"/v1/chat/completions\", status!=\"2xx\"}[5m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{handler=\"/v1/chat/completions\"}[5m])), 1e-9)",
           "legendFormat": "error rate"
         }
       ]
@@ -234,14 +234,17 @@
       "type": "timeseries",
       "id": 8,
       "title": "Cost per 1000 requests over time",
-      "description": "Rises whenever traffic falls, because the GPU cost does not. This is the sawtooth the crossover chart flattens into a step function.",
+      "description": "Rises whenever traffic falls, because the GPU cost does not. This is the sawtooth the crossover chart flattens into a step function. Log scale: idle and saturated differ by orders of magnitude, and a linear axis flattens everything but the idle spike.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 7, "w": 24, "x": 0, "y": 16 },
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "min": 0,
-          "custom": { "fillOpacity": 10, "drawStyle": "line" }
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "scaleDistribution": { "type": "log", "log": 10 }
+          }
         },
         "overrides": []
       },

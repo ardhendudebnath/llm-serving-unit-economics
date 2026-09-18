@@ -96,7 +96,9 @@ spec:
           # with about 15.3 GiB allocatable, so the earlier request of 16 GiB
           # left the pod Pending on "Insufficient memory" with nothing wrong
           # in the pod itself. The limit leaves the node about a gigabyte for
-          # k3s and the kubelet. The GPU request needs the device plugin
+          # k3s and the kubelet. Measured under load on 2026-09-18 (kubectl
+          # top, `short` at 8 rps then `long_in` at 2 rps): 3.5 GiB, so the
+          # 8 GiB request has room. The GPU request needs the device plugin
           # (nvidia-device-plugin.yaml) to be running.
           resources:
             limits:

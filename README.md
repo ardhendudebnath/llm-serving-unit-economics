@@ -244,12 +244,56 @@ into the manifest: a new replica needs minutes to load weights, so it cannot
 absorb a sudden spike, and against a 10× burst what actually protects the SLO
 is bounded queueing plus shedding at the ingress.
 
+**Run on k3s, and what happened.** The deployment runs on a single-node k3s
+cluster inside the same WSL2 VM, with NVIDIA's device plugin
+([`nvidia-device-plugin.yaml`](deploy/k8s/nvidia-device-plugin.yaml)). The
+plugin gained WSL2 support in v0.19.1.
+
+- **The startup probe did its job.** The pod was Ready about 110 s after it
+  was created. Until then the startup probe got "connection refused" and held
+  readiness and liveness off, as designed.
+- **Ready is not warm.** `/health` passes once the model is loaded, but the
+  first requests after the pod started took up to about 20 s to first token.
+  That is the left edge of the time-to-first-token panel below. So a readiness
+  probe on `/health` sends traffic to a pod that is not yet fast. A warm-up
+  request before readiness would close the gap; it is not done here.
+- **The node ran out of memory once, and the Deployment recovered by itself.**
+  Pulling the Prometheus and Grafana images while the model loaded exhausted
+  the 15 GB VM, and the kernel OOM-killed `coredns`. On recovery the kubelet
+  briefly saw the GPU as unhealthy and could not re-admit the pod, so it shut
+  the pod down. The ReplicaSet replaced it, Ready again two minutes later with
+  no one involved. Under load the pod uses about 3.5 GiB, and its memory
+  request is now sized to this node rather than to a cloud VM.
+- **The HPA reports `<unknown>`,** as its manifest warns. No
+  prometheus-adapter is installed, so the queue-depth metric never reaches it.
+  The `AutoscalerMetricUnavailable` alert does not catch this. It checks that
+  Prometheus has the metric, which it does, and cannot see that nothing serves
+  the metric to the HPA.
+
+![Grafana during a load run against the k3s pod](docs/screenshots/grafana-dashboard.png)
+
+The dashboard during about 17 minutes of load on the k3s pod: `short` at 2, 4
+and 8 rps, then `long_in` at 1 and 2 rps. The GPU panels come from
+[`wsl-gpu-exporter.py`](deploy/observability/wsl-gpu-exporter.py), a stand-in
+for DCGM, which cannot run under WSL2. [`wsl-up.sh`](deploy/observability/wsl-up.sh)
+brings the stack up. The load went through a `kubectl port-forward`, so its
+latencies sit above the published podman measurements (p95 2.24 s against
+1.78 s on `short` at 8 rps), and they are not used anywhere else.
+
+**Running the stack found two alerts that could never fire.** The dashboard
+and alert rules read `vllm:gpu_cache_usage_perc` and
+`vllm:request_failure_total`, and vLLM 0.11 exports neither. A query over a
+missing metric returns nothing, so their panels were blank and their alerts
+silent. The rules now read `vllm:kv_cache_usage_perc` and the API server's
+`http_requests_total`. A test checks every series the dashboard and rules read
+against the metric families a live server exported.
+
 **Alerting.** Thresholds are derived, not round — see
 [`deploy/observability/rules.yml`](deploy/observability/rules.yml):
 
 | Alert | Threshold | Why that number |
 |---|---|---|
-| p95 over SLO | 5 min | the SLO the cost curves were computed against |
+| p95 over SLO | > 10 s, 5 min | the SLO the knees and cost curves were measured against; a test holds the alert, the dashboard and the sweeps to one number |
 | Error rate | > 1 %, 5 min | the same ceiling `find_knee()` uses to disqualify a load point, so the alert and the benchmark share one definition of "working" |
 | **GPU underutilised** | < 20 %, 30 min | a **cost** alert: below this the per-request figure is dominated by idle time and the API almost certainly wins |
 | KV cache | > 95 %, 10 min | leading indicator — preemption shows up as a latency tail before it shows up as errors |
