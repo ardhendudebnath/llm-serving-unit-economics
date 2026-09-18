@@ -1,0 +1,23 @@
+[
+  {
+    "id": "longin-0000",
+    "parses": true,
+    "slab": "12",
+    "hsn4": "4911",
+    "text": "SLAB: 12  \nHSN: 4911  \nANSWERABLE: yes  \nWHY: The printed trade advertising materials fall under HSN 4911, which is classified under Chapter 49"
+  },
+  {
+    "id": "longin-0001",
+    "parses": true,
+    "slab": "18",
+    "hsn4": "2401",
+    "text": "SLAB: 18  \nHSN: 24012090  \nANSWERABLE: yes  \nWHY: The product 'Kandi Ravo', being unprocessed tobacco waste without lime tube, falls under"
+  },
+  {
+    "id": "longin-0002",
+    "parses": true,
+    "slab": "18",
+    "hsn4": "8424",
+    "text": "SLAB: 18  \nHSN: 8424  \nANSWERABLE: yes  \nWHY: The HTP Kirloskar Power Sprayer (engine driven) is classified under HSN 8424"
+  }
+]
