@@ -16,8 +16,8 @@ data:
   #   fp16  Qwen/Qwen3-4B-Instruct-2507                             8.04 GB
   #   int8  /models/local/Qwen3-4B-Instruct-2507-quantized.w8a16    5.25 GB  (built by quantize/)
   #   int4  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16         3.43 GB
-  MODEL_ID: "Qwen/Qwen3-4B-Instruct-2507"
-  PRECISION: "fp16"
+  MODEL_ID: "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16"
+  PRECISION: "int4"
 
   # Stable across the ladder on purpose: the load generator and Project 01's
   # harness both address the server by this name, so all three rungs are
