@@ -30,12 +30,10 @@ say() { echo "[$(date -u '+%H:%M:%S')] $*"; }
 rm -rf /root/observability && cp -r "$OBS" /root/observability || exit 1
 
 # In a loop, because kubectl port-forward binds to one pod when it starts and
-# exits when that pod goes. The first pod here was replaced two minutes after
-# going Ready. The WSL VM ran out of memory while this script pulled images
-# during the model load, and the kubelet failed to re-admit the pod after it
-# recovered. A one-shot forward would have silently pointed at nothing.
-#
-# On a 15 GB VM, do not pull images while the model is loading.
+# exits when that pod goes. Pods here do go: whenever WSL shuts the distro
+# down, the kubelet fails to re-admit the pod on the next boot, and the
+# ReplicaSet replaces it (docs/setup.md, section 4b). A one-shot forward would
+# then silently point at nothing.
 say "port-forward svc/vllm-server on :8000, restarted whenever the pod changes"
 if [ -f /root/port-forward.pid ]; then
     kill -- -"$(cat /root/port-forward.pid)" 2>/dev/null || true

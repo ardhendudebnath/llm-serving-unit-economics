@@ -255,18 +255,31 @@ plugin gained WSL2 support in v0.19.1.
 - **The startup probe did its job.** The pod was Ready about 110 s after it
   was created. Until then the startup probe got "connection refused" and held
   readiness and liveness off, as designed.
-- **Ready is not warm.** `/health` passes once the model is loaded, but the
-  first requests after the pod started took up to about 20 s to first token.
-  That is the left edge of the time-to-first-token panel below. So a readiness
-  probe on `/health` sends traffic to a pod that is not yet fast. A warm-up
-  request before readiness would close the gap; it is not done here.
-- **The node ran out of memory once, and the Deployment recovered by itself.**
-  Pulling the Prometheus and Grafana images while the model loaded exhausted
-  the 15 GB VM, and the kernel OOM-killed `coredns`. On recovery the kubelet
-  briefly saw the GPU as unhealthy and could not re-admit the pod, so it shut
-  the pod down. The ReplicaSet replaced it, Ready again two minutes later with
-  no one involved. Under load the pod uses about 3.5 GiB, and its memory
-  request is now sized to this node rather than to a cloud VM.
+- **Ready was not warm, and now is.** `/health` passes once the model is
+  loaded. But a batch of eight requests sent the moment the pod turned Ready
+  waited 18.1–18.8 s for a first token; that is the left edge of the
+  time-to-first-token panel below. The same batch 30 s later took 0.3–0.9 s.
+  A `postStart` hook now sends two batches of throwaway requests before any
+  probe runs, and it absorbs the cost: its first batch took 18.6 s, its second
+  0.8 s. Measured the same way after the fix, the first batch at Ready took
+  0.08–0.68 s. The price is about 30 s more before the pod turns Ready.
+- **A zero-downtime rollout cannot fit on this node.** With `maxSurge: 1`, the
+  new pod needs a second GPU and a second 8 GiB while the old one serves, and
+  it sat Pending on both. The Deployment now rolls with `maxUnavailable: 1`
+  instead. That costs about two and a half minutes of downtime per rollout,
+  which a single-GPU node cannot avoid.
+- **The pod died whenever WSL shut the distro down.** WSL stops a distro
+  seconds after its last `wsl.exe` session exits, and k3s and the pod go with
+  it. When the distro next boots, the kubelet re-admits the pod before the
+  NVIDIA device plugin has re-registered. It fails with "no healthy devices"
+  and shuts the pod down, and the ReplicaSet replaces it. This happened twice
+  before the cause was clear. It was first misread as an out-of-memory
+  failure, because on startup the kubelet replays old kernel OOM kills as fresh
+  `SystemOOM` events; that one was a calibration run the day before. The fix
+  is a keepalive: one `wsl.exe` session left open for as long as the cluster
+  should run ([`docs/setup.md`](docs/setup.md) §4b). Under load the pod uses
+  about 3.5 GiB, and its memory request is now sized to this node rather than
+  to a cloud VM.
 - **The HPA reports `<unknown>`,** as its manifest warns. No
   prometheus-adapter is installed, so the queue-depth metric never reaches it.
   The `AutoscalerMetricUnavailable` alert does not catch this. It checks that
