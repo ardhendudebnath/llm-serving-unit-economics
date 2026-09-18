@@ -200,6 +200,9 @@ def main() -> int:
                     help="which profile the crossover chart is drawn for")
     ap.add_argument("--peak-to-mean", type=float, default=1.0)
     ap.add_argument("--currency", default="INR", choices=["INR", "USD"])
+    ap.add_argument("--no-crossover", action="store_true",
+                    help="skip the crossover chart, e.g. until an API model of "
+                         "matched quality has been chosen to compare against")
     args = ap.parse_args()
 
     sweeps = load_sweeps(args.sweeps, args.precision)
@@ -244,7 +247,10 @@ def main() -> int:
         )
 
     # --- the crossover chart -----------------------------------------------
-    draw_crossovers(sweeps, args, written, skipped)
+    if args.no_crossover:
+        skipped.append("crossover: not drawn (--no-crossover)")
+    else:
+        draw_crossovers(sweeps, args, written, skipped)
 
     print(f"\n  charts -> {args.out}\n")
     for path in written:

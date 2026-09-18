@@ -70,10 +70,11 @@ def run(repo, monkeypatch):
         monkeypatch.setattr(build, name, capture(name))
     monkeypatch.setattr(build, "api_pricing_from_harness", lambda key: API)
 
-    def go() -> list[tuple[str, str, object]]:
+    def go(*extra: str) -> list[tuple[str, str, object]]:
         monkeypatch.setattr(sys, "argv", [
             "build", "--sweeps", str(repo / "sweeps"), "--out", str(repo / "charts"),
             "--baseline", str(repo / "baseline.json"), "--eval", str(repo / "eval"),
+            *extra,
         ])
         assert build.main() == 0
         return calls
@@ -127,6 +128,15 @@ def test_one_crossover_per_priceable_rung_and_a_named_skip_for_the_rest(run, cap
     # int8 has no knee on long_in: skipped by name, never drawn at zero capacity.
     assert names == ["crossover-fp16.png", "crossover-int4.png"]
     assert "SKIPPED  crossover int8" in capsys.readouterr().out
+
+
+def test_no_crossover_draws_none_and_says_so(run, capsys):
+    # The measured charts can be published before the API comparator is
+    # chosen; the crossover is skipped by name rather than silently absent.
+    kinds = [kind for kind, _, _ in run("--no-crossover")]
+    assert "crossover_chart" not in kinds
+    assert "throughput_vs_precision_chart" in kinds
+    assert "SKIPPED  crossover: not drawn (--no-crossover)" in capsys.readouterr().out
 
 
 def test_quality_is_skipped_and_said_so_when_nothing_is_recorded(run, capsys):
