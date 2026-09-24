@@ -9,14 +9,17 @@ classifying Indian goods into the GST slab that is *currently* in force, after
 two restructures in under two years. That project scores quality. This one adds
 latency and cost, so all three sit in the same frame.
 
-> **Status: the whole ladder is measured. The crossover waits on an API model
-> to compare against.**
+The write-up: [What it actually costs to self-host Qwen3-4B for GST
+classification](docs/post.md).
+
+> **Status: the whole ladder is measured. The crossover is priced, but not yet
+> quality-matched.**
 >
 > fp16, int8 and int4 have each been served, load-tested on all three workload
 > profiles and scored five times on Project 01's harness. Their numbers and
-> charts are below. The crossover chart and the headline are still absent
-> rather than estimated, because they need an API model of matched quality,
-> and none has been chosen or scored yet.
+> charts are below. The crossover is drawn against Claude Haiku 4.5's list
+> price and labelled as not quality-matched, on the chart itself, because
+> Haiku has not been scored on this task.
 >
 > This section will keep saying what is missing until nothing is. Project 01
 > holds the same line, and it is the reason its numbers are worth reading.
@@ -25,19 +28,29 @@ latency and cost, so all three sit in the same frame.
 
 ## The headline
 
-*Empty until measured.* It will read like this, with a chart underneath:
+> Self-hosting Qwen3-4B on an RTX 5070 Ti laptop costs less than Claude Haiku
+> 4.5's list price above **about 47,000 `long_in` requests a month**, at a p95
+> of **10 s**, at fp16 or int8 alike. **This is not quality-matched**: this
+> model gets 41.4 % of slabs right, and Haiku has not been scored on the task.
 
-> Self-hosting beats the API above **N requests/month** at a p95 target of
-> **X ms**, on a *[GPU]* at *[precision]*.
+![Self-hosted vs Claude Haiku 4.5 on long_in at int8](docs/charts/crossover-int8.png)
 
-**It may well read the other way**, and that is a real possible outcome rather
-than a hedge. The crossover exists only when the API's per-request price is
-above the self-hosted marginal cost. A small open-weight model that scores
-poorly on this task cannot be compared on price against a frontier API model
-that scores well — the honest comparison matches on quality *first*, then
-compares cost, and it is entirely possible that nothing self-hostable on one
-GPU clears the quality bar. If so, that is the finding and it will be published
-as the finding.
+- **The break-even sits at 0.9 % GPU utilisation.** The laptop costs ₹7,762 a
+  month at its amortised rate, whether it serves or not. That is what Haiku
+  would charge for 47,423 `long_in` requests at ₹0.164 each, from its list
+  price of $1 and $5 per million input and output tokens (read 2026-06-24).
+  The self-hosted floor is ₹0.0015 a request, about 110 times less.
+- **It is the same at every precision.** One card covers the crossover volume
+  about a hundred times over, so its capacity never binds there, and
+  quantisation cannot move the crossover. int4 is not drawn: its quality gate
+  verdict is blocked, and the report publishes no cost for a rung that fails
+  on quality.
+- **Why it is only a price comparison.** The honest comparison matches on
+  quality first, then compares cost. A 41 % model's cost set against the price
+  of a model that may score far higher prices two different products. It is
+  also charged this model's token counts rather than Haiku's own, prices the
+  laptop as if dedicated around the clock, and assumes flat traffic. Scoring
+  Haiku on Project 01, for about ₹40, would make it a real answer.
 
 ---
 
@@ -48,10 +61,10 @@ as the finding.
 | Latency vs load, three workload profiles | measured | measured | measured |
 | Quality on Project 01's harness, five runs | measured | measured | measured |
 | GPU utilisation and throttling at each point | measured | measured | measured |
-| Cost per 1000 requests, self-hosted vs API | not charted | not charted | not charted |
+| Crossover against an API | charted | charted | withheld: gate blocked |
 
-The cost row waits on the comparison, not on the measurement: the crossover
-needs an API model of matched quality, and none has been chosen or scored.
+The crossover is priced against Claude Haiku 4.5's list price and is not
+quality-matched. See the headline.
 
 ### Capacity at a p95 of 10 s
 
@@ -252,18 +265,31 @@ plugin gained WSL2 support in v0.19.1.
 - **The startup probe did its job.** The pod was Ready about 110 s after it
   was created. Until then the startup probe got "connection refused" and held
   readiness and liveness off, as designed.
-- **Ready is not warm.** `/health` passes once the model is loaded, but the
-  first requests after the pod started took up to about 20 s to first token.
-  That is the left edge of the time-to-first-token panel below. So a readiness
-  probe on `/health` sends traffic to a pod that is not yet fast. A warm-up
-  request before readiness would close the gap; it is not done here.
-- **The node ran out of memory once, and the Deployment recovered by itself.**
-  Pulling the Prometheus and Grafana images while the model loaded exhausted
-  the 15 GB VM, and the kernel OOM-killed `coredns`. On recovery the kubelet
-  briefly saw the GPU as unhealthy and could not re-admit the pod, so it shut
-  the pod down. The ReplicaSet replaced it, Ready again two minutes later with
-  no one involved. Under load the pod uses about 3.5 GiB, and its memory
-  request is now sized to this node rather than to a cloud VM.
+- **Ready was not warm, and now is.** `/health` passes once the model is
+  loaded. But a batch of eight requests sent the moment the pod turned Ready
+  waited 18.1–18.8 s for a first token; that is the left edge of the
+  time-to-first-token panel below. The same batch 30 s later took 0.3–0.9 s.
+  A `postStart` hook now sends two batches of throwaway requests before any
+  probe runs, and it absorbs the cost: its first batch took 18.6 s, its second
+  0.8 s. Measured the same way after the fix, the first batch at Ready took
+  0.08–0.68 s. The price is about 30 s more before the pod turns Ready.
+- **A zero-downtime rollout cannot fit on this node.** With `maxSurge: 1`, the
+  new pod needs a second GPU and a second 8 GiB while the old one serves, and
+  it sat Pending on both. The Deployment now rolls with `maxUnavailable: 1`
+  instead. That costs about two and a half minutes of downtime per rollout,
+  which a single-GPU node cannot avoid.
+- **The pod died whenever WSL shut the distro down.** WSL stops a distro
+  seconds after its last `wsl.exe` session exits, and k3s and the pod go with
+  it. When the distro next boots, the kubelet re-admits the pod before the
+  NVIDIA device plugin has re-registered. It fails with "no healthy devices"
+  and shuts the pod down, and the ReplicaSet replaces it. This happened twice
+  before the cause was clear. It was first misread as an out-of-memory
+  failure, because on startup the kubelet replays old kernel OOM kills as fresh
+  `SystemOOM` events; that one was a calibration run the day before. The fix
+  is a keepalive: one `wsl.exe` session left open for as long as the cluster
+  should run ([`docs/setup.md`](docs/setup.md) §4b). Under load the pod uses
+  about 3.5 GiB, and its memory request is now sized to this node rather than
+  to a cloud VM.
 - **The HPA reports `<unknown>`,** as its manifest warns. No
   prometheus-adapter is installed, so the queue-depth metric never reaches it.
   The `AutoscalerMetricUnavailable` alert does not catch this. It checks that
@@ -332,7 +358,19 @@ clears the baseline. The full build → serve → score loop exists as `gate-liv
 conditioned on a GPU runner actually existing rather than left permanently
 pending.
 
-*Screenshot of a blocked PR: pending the first measured run.*
+**What it has caught: the int4 rollout.** The branch
+[`demo/int4-regression`](https://github.com/ardhendudebnath/llm-serving-unit-economics/tree/demo/int4-regression)
+does what a real int4 rollout would do: it switches the ConfigMap to RedHatAI's
+W4A16 checkpoint and attaches one of the int4 harness runs. Run as CI runs it,
+the guard is satisfied, because a scored run is attached, and hands the change
+to the compare step. That step blocks it on four metrics, each far outside the
+fp16 noise floor: slab accuracy −16.4 points, HSN −23.6, chapter −23.6 and
+abstention −39.3 ([the full table](results/eval/int4/gate.md)). The row
+comparison explains the loss: int4 declines to answer on 11 rows that fp16
+answers.
+
+*Screenshot of the blocked pull request: pending, until that branch is opened
+as a PR on GitHub.*
 
 ---
 

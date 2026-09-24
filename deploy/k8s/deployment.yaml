@@ -16,14 +16,23 @@ spec:
   # available for measurement while adding nothing to the cost curves.
   replicas: 1
   strategy:
-    # Never Recreate: a rolling update keeps the old pod serving while the new
-    # one spends minutes loading weights. maxSurge 1 costs a second GPU for the
-    # length of the rollout, which is the honest price of a zero-downtime
-    # deploy and is called out in the cost writeup.
+    # Rolling, but without a surge, because this node cannot hold two pods.
+    #
+    # maxSurge 1 / maxUnavailable 0 keeps the old pod serving while the new
+    # one loads. That is the right shape for a zero-downtime deploy, and it
+    # costs a second GPU for the length of the rollout. This node has one GPU
+    # and about 15 GiB of memory, so the surge pod can never be scheduled.
+    # Measured 2026-09-18, it sat Pending on "Insufficient memory,
+    # Insufficient nvidia.com/gpu", and with maxUnavailable 0 nothing could
+    # make room for it.
+    #
+    # maxUnavailable 1 lets a rollout finish, at the price of downtime: the old
+    # pod stops before the new one has loaded and warmed, about two minutes
+    # here. On a node with a spare GPU, put maxSurge 1 / maxUnavailable 0 back.
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: vllm-server
@@ -184,6 +193,61 @@ spec:
             timeoutSeconds: 10
 
           lifecycle:
+            # Warm up before the pod can turn Ready.
+            #
+            # **Ready is not warm, measured 2026-09-18.** /health passes once
+            # the weights are loaded. But a batch of eight requests sent the
+            # moment the pod turned Ready waited 18.1-18.8 s for a first token,
+            # short and long prompts alike, and the same batch 30 s later took
+            # 0.3-0.9 s. The first users after every start, restart and rollout
+            # paid that.
+            #
+            # Kubernetes runs no probe until postStart returns, so a hook that
+            # sends a few real requests first means the startup and readiness
+            # probes can only pass on a warm server, and the Service never
+            # routes anyone to a cold one.
+            #
+            # Bounded by the startup probe's own 10-minute budget, and it fails
+            # loudly: if the server never becomes healthy, the hook exits
+            # non-zero and the kubelet restarts the container, as the startup
+            # probe would have. Its prompts are deliberately unlike real
+            # traffic; what it warms is the engine, not a cache.
+            postStart:
+              exec:
+                command:
+                  - python3
+                  - -c
+                  - |
+                    import concurrent.futures as cf, json, os, sys, time, urllib.request
+                    base = "http://127.0.0.1:8000"
+                    log = open("/proc/1/fd/1", "w")
+                    deadline = time.time() + 600
+                    while True:
+                        try:
+                            urllib.request.urlopen(base + "/health", timeout=3)
+                            break
+                        except Exception:
+                            if time.time() > deadline:
+                                print("warm-up: not healthy within 10 minutes", file=log, flush=True)
+                                sys.exit(1)
+                            time.sleep(2)
+                    def ask(words, max_tokens):
+                        body = json.dumps({
+                            "model": os.environ["SERVED_MODEL_NAME"],
+                            "max_tokens": max_tokens,
+                            "messages": [{"role": "user", "content": "Warm-up request. " * words}],
+                        }).encode()
+                        req = urllib.request.Request(base + "/v1/chat/completions", data=body,
+                                                     headers={"Content-Type": "application/json"})
+                        start = time.time()
+                        urllib.request.urlopen(req, timeout=300).read()
+                        return round(time.time() - start, 2)
+                    started = time.time()
+                    for _ in range(2):
+                        with cf.ThreadPoolExecutor(8) as pool:
+                            took = list(pool.map(lambda a: ask(*a), [(8, 16)] * 6 + [(300, 16)] * 2))
+                        print(f"warm-up batch, seconds: {took}", file=log, flush=True)
+                    print(f"warm-up done in {time.time() - started:.0f} s", file=log, flush=True)
             preStop:
               # Let in-flight generations finish before SIGTERM. long_out
               # requests can run for tens of seconds, and cutting them off

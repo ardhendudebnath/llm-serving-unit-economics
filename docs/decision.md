@@ -9,10 +9,15 @@ are filled in as they arrive.
 
 ## The short answer
 
-*Pending measurement.* It will be conditional and it will cite a number:
+On price alone, against Claude Haiku 4.5's list price: **self-host above about
+47,000 `long_in` requests a month** at a p95 of 10 s, at fp16 or int8. Below
+that, use the API, because the laptop costs ₹7,762 a month whether it serves
+or not.
 
-> Self-host above **N requests/month** at a p95 of **X s**. Below that, use the
-> API — the GPU sits idle and the API wins outright.
+That is not yet a decision, because it is not quality-matched. This model
+scores 41.4 % slab accuracy, and Haiku has not been scored on the task. If
+Haiku scores much higher, the comparison prices two different products, and
+question 1 decides it before cost does.
 
 ## How to use this
 
@@ -54,9 +59,12 @@ divided by capacity, which is where self-hosting wins decisively.
 > ladder's resolution quantisation buys no capacity on this profile, so it
 > cannot lower that floor.
 >
-> Crossover: *pending*, until an API model of matched quality is chosen and
-> scored. Comparing against an API model that scores 13 points higher would
-> price two different products.
+> Crossover, against Claude Haiku 4.5's list price ($1 and $5 per million
+> input and output tokens, read 2026-06-24): **47,423 `long_in` requests a
+> month**, at 0.9 % GPU utilisation. It is the same at every precision,
+> because one card covers the crossover volume about a hundred times over.
+> Only the card's monthly cost and the API's price per request set it.
+> *Not quality-matched:* Haiku has not been scored on this task.
 
 ### 3. How bursty is the traffic?
 

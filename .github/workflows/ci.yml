@@ -57,6 +57,22 @@ jobs:
       - name: Workload corpora are present and distinct
         run: python -m pytest tests/test_workloads.py -q
 
+      # The report draws with matplotlib, which the steps above deliberately do
+      # not install -- the core and the gate stay dependency-free. Its tests
+      # skip up there, so they run here, with the extra installed. Without this
+      # step a skipped chart test would be indistinguishable from a passing one,
+      # which is the same trap the cross-repo job below exists to avoid.
+      - name: Install the chart dependency
+        run: python -m pip install -e '.[charts]'
+
+      - name: Chart and report tests
+        run: |
+          python -m pytest -q \
+            tests/test_charts.py \
+            tests/test_report_build.py \
+            tests/test_report_build_duty.py \
+            tests/test_report_build_ladder.py
+
   # The cross-repo guards only mean anything with Project 01 actually present.
   # Run without it and they skip -- and a skipped guard is indistinguishable
   # from a passing one in a CI summary, which is the failure this job exists to
@@ -68,6 +84,14 @@ jobs:
   # discovering it later on a GPU.
   cross-repo:
     runs-on: ubuntu-latest
+    # Only runs where a runner can actually fetch Project 01. That repository
+    # is private, so `pip install .[eval]` fails in `git clone` with an error
+    # about credentials, which says nothing about this repo and teaches
+    # everyone to ignore a red check. Set the repository variable
+    # HARNESS_AVAILABLE to true once Project 01 is public, or once
+    # HARNESS_TOKEN carries a read-only token for it. The job then shows as
+    # skipped rather than failed, and a skip is visible in the checks list.
+    if: ${{ vars.HARNESS_AVAILABLE == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -75,8 +99,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install with the pinned harness
+        env:
+          HARNESS_TOKEN: ${{ secrets.HARNESS_TOKEN }}
         run: |
           python -m pip install --upgrade pip
+          if [ -n "${HARNESS_TOKEN:-}" ]; then
+            git config --global \
+              url."https://x-access-token:${HARNESS_TOKEN}@github.com/".insteadOf \
+              "https://github.com/"
+          fi
           python -m pip install -e '.[eval]' pytest
 
       - name: Project 01 and this repo agree

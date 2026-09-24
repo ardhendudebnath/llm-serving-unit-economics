@@ -429,6 +429,24 @@ vmIdleTimeout=-1
 Then `wsl --shutdown` to apply. Verify by reading `ActiveEnterTimestamp` in two
 separate commands a few seconds apart — the timestamp must not change.
 
+**`vmIdleTimeout` keeps the VM alive, not the distro.** WSL still stops the
+Ubuntu distro a few seconds after its last `wsl.exe` session exits, and
+systemd services such as k3s stop with it. On the next boot, the kubelet
+re-admits the vLLM pod before the NVIDIA device plugin has re-registered. It
+fails with `Allocate failed due to no healthy devices present` and shuts the
+pod down, so the ReplicaSet replaces it.
+
+The tell is k3s's start time. If `systemctl show k3s -p ActiveEnterTimestamp
+-p NRestarts` reads minutes ago with `NRestarts=0`, the whole distro booted.
+Keep one session open from Windows for as long as the cluster should run:
+
+```powershell
+Start-Process wsl.exe -ArgumentList '-d','Ubuntu-24.04','-e','sleep','infinity' -WindowStyle Hidden
+```
+
+A related trap: on startup the kubelet replays old kernel OOM kills as fresh
+`SystemOOM` events. Check the date in `dmesg -T` before believing one.
+
 ## 4c. After the laptop sleeps: stale port forwarding
 
 **If `localhost:8000` stops answering while vLLM says it is running**, check the

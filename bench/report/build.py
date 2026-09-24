@@ -128,6 +128,16 @@ def capacity_from(sweep: dict, gpu_key: str) -> Capacity | None:
     )
 
 
+def gate_blocked(eval_dir: Path) -> set[str]:
+    """Rungs whose quality gate verdict, results/eval/<rung>/gate.md, is blocked."""
+    blocked = set()
+    for key in LADDER:
+        gate = eval_dir / key / "gate.md"
+        if gate.exists() and "Quality gate: **blocked**" in gate.read_text(encoding="utf-8"):
+            blocked.add(key)
+    return blocked
+
+
 def draw_crossovers(
     sweeps: list[dict], args: argparse.Namespace,
     written: list[Path], skipped: list[str],
@@ -137,15 +147,28 @@ def draw_crossovers(
     Per rung because the ladder's cost question is exactly how far a smaller
     rung moves the crossover. Each rung that cannot be priced is skipped by
     name, so a missing int8 chart is never mistaken for one nobody tried.
+
+    A rung the quality gate blocked is skipped too. What it would cost is not
+    worth publishing when it fails on quality: a cheaper curve for a
+    configuration that must not ship is the most misleading chart this report
+    could draw.
     """
     targets = [s for s in sweeps if s["profile"] == args.profile]
     if not targets:
         skipped.append(f"crossover: no sweep for profile {args.profile!r}")
         return
 
+    blocked = gate_blocked(args.eval)
     api: ApiPricing | None = None
     for target in targets:
         label = f"crossover {target['precision']}"
+        if target["precision"] in blocked:
+            skipped.append(
+                f"{label}: blocked by the quality gate "
+                f"({args.eval}/{target['precision']}/gate.md); no cost is "
+                "published for a rung that fails on quality"
+            )
+            continue
         capacity = capacity_from(target, args.gpu)
         if capacity is None:
             skipped.append(
@@ -180,6 +203,7 @@ def draw_crossovers(
         written.append(crossover_chart(
             capacity, api, args.out / f"crossover-{target['precision']}.png",
             peak_to_mean=args.peak_to_mean, currency=args.currency,
+            caveat=args.caveat,
         ))
 
 
@@ -200,10 +224,17 @@ def main() -> int:
                     help="which profile the crossover chart is drawn for")
     ap.add_argument("--peak-to-mean", type=float, default=1.0)
     ap.add_argument("--currency", default="INR", choices=["INR", "USD"])
+    ap.add_argument("--caveat", default=None,
+                    help="printed on the crossover chart itself, e.g. when the "
+                         "API model has not been scored on this task. A literal "
+                         "\\n breaks the line, since some shells mangle real "
+                         "newlines in arguments")
     ap.add_argument("--no-crossover", action="store_true",
                     help="skip the crossover chart, e.g. until an API model of "
                          "matched quality has been chosen to compare against")
     args = ap.parse_args()
+    if args.caveat:
+        args.caveat = args.caveat.replace("\\n", "\n")
 
     sweeps = load_sweeps(args.sweeps, args.precision)
     if not sweeps:

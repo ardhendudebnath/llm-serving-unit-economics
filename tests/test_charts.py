@@ -83,6 +83,15 @@ def test_crossover_chart_accepts_both_currencies(tmp_path):
     assert inr.exists() and usd.exists()
 
 
+def test_crossover_chart_draws_a_caveat_onto_the_image(tmp_path):
+    # The caveat is part of the picture, so a chart shared without its README
+    # still carries it. A boxed label adds pixels the plain chart lacks.
+    plain = crossover_chart(CAP, API, tmp_path / "plain.png")
+    marked = crossover_chart(CAP, API, tmp_path / "marked.png",
+                             caveat="Not quality-matched:\nthe API model is unscored")
+    assert marked.stat().st_size > plain.stat().st_size
+
+
 def test_crossover_chart_creates_missing_directories(tmp_path):
     out = crossover_chart(CAP, API, tmp_path / "deep" / "nested" / "c.png")
     assert out.exists()

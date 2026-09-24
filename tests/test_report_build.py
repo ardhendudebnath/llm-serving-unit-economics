@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from bench.metrics import LoadPoint, RequestRecord
+
+# bench.report.build imports the chart module, so these tests need matplotlib
+# even though the functions under test do not. CI's default run installs
+# nothing, to hold the core and the gate to their dependency-free promise; a
+# later step installs the charts extra and runs this file there.
+pytest.importorskip("matplotlib")
+
 from bench.report.build import capacity_from, load_sweeps
 
 

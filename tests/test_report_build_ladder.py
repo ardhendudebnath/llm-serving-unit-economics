@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 from bench.cost import ApiPricing
+
+# bench.report.build imports the chart module. See tests/test_report_build.py.
+pytest.importorskip("matplotlib")
+
 from bench.report import build
 
 API = ApiPricing("test-api", usd_in_per_m=1.0, usd_out_per_m=5.0, read_on="2026-06-24")
@@ -128,6 +132,39 @@ def test_one_crossover_per_priceable_rung_and_a_named_skip_for_the_rest(run, cap
     # int8 has no knee on long_in: skipped by name, never drawn at zero capacity.
     assert names == ["crossover-fp16.png", "crossover-int4.png"]
     assert "SKIPPED  crossover int8" in capsys.readouterr().out
+
+
+def test_a_rung_the_gate_blocked_gets_no_crossover(repo, run, capsys):
+    # int4 has a priceable knee in the fixture; its gate verdict alone must
+    # keep its cost curve off the page.
+    (repo / "eval" / "int4").mkdir(parents=True)
+    (repo / "eval" / "int4" / "gate.md").write_text(
+        "### Quality gate: **blocked**\n", encoding="utf-8"
+    )
+    names = [name for kind, name, _ in run() if kind == "crossover_chart"]
+    assert names == ["crossover-fp16.png"]
+    assert "SKIPPED  crossover int4: blocked by the quality gate" in capsys.readouterr().out
+
+
+def test_a_passed_gate_does_not_skip_the_rung(repo, run):
+    (repo / "eval" / "int4").mkdir(parents=True)
+    (repo / "eval" / "int4" / "gate.md").write_text(
+        "### Quality gate: **passed**\n", encoding="utf-8"
+    )
+    names = [name for kind, name, _ in run() if kind == "crossover_chart"]
+    assert names == ["crossover-fp16.png", "crossover-int4.png"]
+
+
+def test_the_caveat_reaches_the_crossover_chart(run, monkeypatch):
+    seen: list[str | None] = []
+
+    def fake(capacity, api, out_path, **kw):
+        seen.append(kw.get("caveat"))
+        return out_path
+
+    monkeypatch.setattr(build, "crossover_chart", fake)
+    run("--caveat", "Not quality-matched")
+    assert seen and all(c == "Not quality-matched" for c in seen)
 
 
 def test_no_crossover_draws_none_and_says_so(run, capsys):
