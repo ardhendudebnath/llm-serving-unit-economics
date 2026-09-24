@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 from bench.cost import ApiPricing
+
+# bench.report.build imports the chart module. See tests/test_report_build.py.
+pytest.importorskip("matplotlib")
+
 from bench.report import build
 
 API = ApiPricing("test-api", usd_in_per_m=1.0, usd_out_per_m=5.0, read_on="2026-06-24")
