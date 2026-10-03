@@ -42,9 +42,10 @@ classification](docs/post.md).
   The self-hosted floor is ₹0.0015 a request, about 110 times less.
 - **It is the same at every precision.** One card covers the crossover volume
   about a hundred times over, so its capacity never binds there, and
-  quantisation cannot move the crossover. int4 is not drawn: its quality gate
-  verdict is blocked, and the report publishes no cost for a rung that fails
-  on quality.
+  quantisation cannot move the crossover. The
+  [fp16 chart](docs/charts/crossover-fp16.png) is the same curve with a
+  different title. int4 is not drawn: its quality gate verdict is blocked, and
+  the report publishes no cost for a rung that fails on quality.
 - **Why it is only a price comparison.** The honest comparison matches on
   quality first, then compares cost. A 41 % model's cost set against the price
   of a model that may score far higher prices two different products. It is
@@ -388,8 +389,8 @@ as a PR on GitHub.*
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
 python -m pip install -e '.[dev,load,charts]'
-python -m pytest tests -q                 # 201 tests, no GPU
-python -m pytest tests -q -m "not e2e"    # 187 of them, in about 10 seconds
+python -m pytest tests -q                 # 241 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 227 of them, in about 4 seconds
 ```
 
 **The whole toolchain runs without a GPU.** `tests/mock_server.py` speaks vLLM's
@@ -408,6 +409,11 @@ The dashboards run on CPU too:
 ```bash
 podman compose -f deploy/observability/docker-compose.yml up
 ```
+
+On a box with no compose provider, as on the WSL2 machine this was measured on,
+`make observability-wsl` runs the same two containers with plain podman. It
+also points Prometheus at the pod in k3s and at an `nvidia-smi` stand-in for
+DCGM, which cannot run under WSL2.
 
 Rebuild the workload corpora from Project 01 (only needed if its data changes):
 
@@ -429,6 +435,29 @@ python -m bench.sweep --all-profiles --precision fp16 --slo 10 \
 
 `make serve ENGINE=docker` still works; the Dockerfile and manifests are
 engine-agnostic.
+
+On the cluster rather than the container, with the device plugin that makes
+the GPU allocatable:
+
+```bash
+make k8s-up KUBECTL="k3s kubectl"     # manifests + nvidia-device-plugin.yaml
+make k8s-status KUBECTL="k3s kubectl" # pods, services, and the pod's events
+```
+
+The 8-bit rung is built here rather than downloaded, because no W8A8 checkpoint
+runs on this card. It takes about 90 seconds and writes its settings beside the
+weights:
+
+```bash
+mkdir -p /root/quantize && cp quantize/run.sh quantize/w8a16.py /root/quantize/
+/root/quantize/run.sh                 # see quantize/w8a16.py for why RTN
+```
+
+Render the charts with the caveat the crossover currently carries:
+
+```bash
+make charts                           # keeps the not-quality-matched label
+```
 
 The sweep checkpoints after every point, so a preempted spot instance loses one
 point rather than the run, and it stops climbing once p95 is 3× over the SLO
@@ -556,16 +585,23 @@ Written before the measurements, so none of it is retrofitted.
 bench/       config (dated prices, amortisation) · metrics (percentiles,
              knee) · cost (step function, crossover) · workloads · loadgen
              (open-loop, Poisson) · sweep (checkpointing) · gpu (VRAM,
-             throttle detection) · build_corpus · report/ (charts, build)
+             throttle detection) · build_corpus · report/ (charts, build,
+             rows — how a rung got worse, not just by how much)
 gate/        compare (noise-floor tolerance) · record · guard
+quantize/    w8a16.py · run.sh — the 8-bit rung, built here because no W8A8
+             checkpoint runs on this card
 serving/     Dockerfile · entrypoint.sh
-deploy/      k8s/ (deployment, service, hpa, configmap)
+deploy/      k8s/ (deployment with a warm-up hook, service, hpa, configmap,
+             nvidia-device-plugin)
              observability/ (prometheus.yml, rules.yml, grafana dashboard,
-             docker-compose for the CPU-side stack)
+             docker-compose for the CPU-side stack, wsl-up.sh and
+             wsl-gpu-exporter.py for WSL2)
 tests/       mock_server.py — a fake vLLM, so the toolchain runs with no GPU
 data/        workloads/ — the three replayable corpora
-docs/        decision.md · cost-log.md · charts/
-results/     sweeps/ · eval/ — committed evidence
+docs/        post.md (the write-up) · decision.md · cost-log.md · models.md ·
+             setup.md (the runbook) · charts/ · screenshots/
+results/     sweeps/ (with contaminated/, kept as evidence) · eval/ — per rung,
+             with each gate verdict and row-by-row comparison
 ```
 
 ## Licence
