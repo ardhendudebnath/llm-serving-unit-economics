@@ -382,6 +382,15 @@ because no GPU runner is registered.
 
 ![The PR's checks: gate failed, gate-live skipped](docs/screenshots/blocked-pr-checks.png)
 
+**The red cross is not what stops the merge.** `main` is protected, with `gate`
+as a required status check, so GitHub itself refuses to merge: PR #1 reports
+`mergeStateStatus: BLOCKED` while being conflict-free and otherwise mergeable.
+The rule is deliberately *not* enforced on administrators. `gate` runs on
+`pull_request` only, so a commit pushed straight to `main` would be judged
+against a check that can never arrive, and the branch would be unpushable
+forever. The protection holds the merge button, which is where the regression
+would actually get in; it does not pretend to lock the branch.
+
 ---
 
 ## Reproducing
