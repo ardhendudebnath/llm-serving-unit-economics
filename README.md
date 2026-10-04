@@ -370,8 +370,17 @@ abstention −39.3 ([the full table](results/eval/int4/gate.md)). The row
 comparison explains the loss: int4 declines to answer on 11 rows that fp16
 answers.
 
-*Screenshot of the blocked pull request: pending, until that branch is opened
-as a PR on GitHub.*
+[Pull request #1](https://github.com/ardhendudebnath/llm-serving-unit-economics/pull/1)
+is that rollout, left open and unmerged as the demonstration.
+
+![The quality gate blocking the int4 rollout on PR #1](docs/screenshots/blocked-pr.png)
+
+The gate posts the table either way, pass or fail, so a reviewer sees the
+numbers rather than a red cross. On the checks tab, `gate` is the only failure:
+the tests, lint, manifests and shellcheck all pass, and `gate-live` is skipped
+because no GPU runner is registered.
+
+![The PR's checks: gate failed, gate-live skipped](docs/screenshots/blocked-pr-checks.png)
 
 ---
 
