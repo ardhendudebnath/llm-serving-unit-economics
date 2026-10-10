@@ -407,9 +407,19 @@ would actually get in; it does not pretend to lock the branch.
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
 python -m pip install -e '.[dev,load,charts]'
-python -m pytest tests -q                 # 241 tests, no GPU
-python -m pytest tests -q -m "not e2e"    # 227 of them, in about 4 seconds
+python -m pytest tests -q                 # 255 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 241 of them, in about 4 seconds
 ```
+
+**The numbers in this README are under test.**
+`tests/test_published_numbers.py` parses the tables above back out of this file
+and recomputes every cell from `results/`: each knee and its p95 from the sweep
+that measured it, each quality mean and range from that rung's five recorded
+runs, and the whole crossover chain — volume, ₹ per month, ₹ per request,
+break-even utilisation — from the committed sweep and the API price quoted
+beside it. A bracket omitted where runs differ fails too, because "no range"
+is itself a claim. Re-measure something and the build stays red until the prose
+moves with the data.
 
 **The whole toolchain runs without a GPU.** `tests/mock_server.py` speaks vLLM's
 wire format — same SSE framing, same role-only first delta, same trailing usage
@@ -615,6 +625,8 @@ deploy/      k8s/ (deployment with a warm-up hook, service, hpa, configmap,
              docker-compose for the CPU-side stack, wsl-up.sh and
              wsl-gpu-exporter.py for WSL2)
 tests/       mock_server.py — a fake vLLM, so the toolchain runs with no GPU
+             test_published_numbers.py — this README's tables, recomputed
+             from results/
 data/        workloads/ — the three replayable corpora
 docs/        post.md (the write-up) · decision.md · cost-log.md · models.md ·
              setup.md (the runbook) · charts/ · screenshots/
