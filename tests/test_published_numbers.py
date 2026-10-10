@@ -1,4 +1,4 @@
-"""The numbers in the README are the numbers in results/, and this says so.
+"""The numbers in the docs are the numbers in results/, and this says so.
 
 Every headline in this repo is a measurement: a knee from a sweep file, a mean
 from five eval runs, a crossover the cost model solves. They are then *typed
@@ -17,10 +17,15 @@ cell from the committed data. They deliberately recompute rather than compare
 against stored expectations: a stored expectation is another copy of the prose
 and drifts with it.
 
+The headline figures are then checked across every document that restates
+them -- the README, the decision doc and the write-up. A figure written down
+in three places drifts in two of them, and the decision doc is the one a
+reader acts on.
+
 Most of this file needs nothing but the standard library, so it runs in the
-dependency-free CI job alongside the gate. Only the crossover test reaches for
-`bench.report.build`, which pulls in matplotlib; it skips where that is absent
-and runs in the chart job. See .github/workflows/ci.yml.
+dependency-free CI job alongside the gate. Only the cost tests reach for
+`bench.report.build`, which pulls in matplotlib; they skip where that is absent
+and run in the chart job. See .github/workflows/ci.yml.
 """
 
 from __future__ import annotations
@@ -34,11 +39,21 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 
-#: The same text with every run of whitespace flattened to one space. The
-#: README is hard-wrapped, so a sentence quoting a number is regularly split
-#: across two lines -- and reflowing a paragraph must not fail a test about
-#: arithmetic.
-PROSE = re.sub(r"\s+", " ", README)
+def _flatten(text: str) -> str:
+    """Markdown prose as one long line, so a sentence can be matched whole.
+
+    Two things get in the way of reading a figure out of a sentence. These
+    files are hard-wrapped, so a sentence quoting a number is regularly split
+    across lines -- and reflowing a paragraph must never fail a test about
+    arithmetic. And the decision doc states most of its figures inside
+    blockquotes, where the wrap drops a "> " into the middle of the sentence.
+    Both come out here.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"(?m)^\s*>\s?", "", text))
+
+
+#: The README, flattened. Line-based parsing of its tables uses README itself.
+PROSE = _flatten(README)
 
 SWEEPS = ROOT / "results" / "sweeps"
 EVAL = ROOT / "results" / "eval"
@@ -325,3 +340,153 @@ def test_the_crossover_really_is_the_same_at_every_precision():
     assert len({round(v) for v in volumes.values()}) == 1, (
         f"the README says the crossover is the same at every precision: {volumes}"
     )
+
+
+# --------------------------------------------------- across the documents --
+
+#: Everything a reader is handed. The decision doc and the write-up restate the
+#: headline figures in their own words, and the decision doc is the one someone
+#: acts on -- so it is the worst place for a stale number to survive.
+DOCUMENTS = {
+    name: _flatten((ROOT / name).read_text(encoding="utf-8"))
+    for name in ("README.md", "docs/decision.md", "docs/post.md")
+}
+
+
+def _stated(*patterns: str) -> list[tuple[str, float]]:
+    """Every value any document states for one figure, tagged with its file.
+
+    Several patterns per figure because each document says it in its own
+    words. Matching the phrasing rather than the digits is the point: a
+    pattern containing the expected number would pass by tautology.
+    """
+    return [
+        (name, float(match.replace(",", "")))
+        for name, prose in DOCUMENTS.items()
+        for pattern in patterns
+        for match in re.findall(pattern, prose)
+    ]
+
+
+def _agree(figure: str, stated: list[tuple[str, float]], *accepted: float) -> None:
+    """Every document's version of `figure` is one of the computed values.
+
+    More than one is accepted where the docs legitimately round -- "about
+    47,000" beside the exact 47,423 is good writing, not drift.
+    """
+    assert stated, (
+        f"no document states {figure} any more. Either it was dropped, or it "
+        "was reworded and this check is now watching nothing."
+    )
+    wrong = [
+        (name, value) for name, value in stated
+        if not any(value == pytest.approx(a) for a in accepted)
+    ]
+    assert not wrong, f"{figure}: the data gives {accepted}, the docs say {wrong}"
+
+
+def _consistent(figure: str, stated: list) -> None:
+    """The documents agree with each other, where there is no local source.
+
+    The API's list price is read off a provider's page, so nothing in this
+    repo can confirm it. What a test can still catch is one document updated
+    and the other two left behind.
+    """
+    assert stated, f"no document states {figure} any more"
+    values = {value for _, value in stated}
+    assert len(values) == 1, f"{figure} is written three ways: {stated}"
+
+
+def test_every_document_agrees_on_the_measured_quality():
+    expected = {p: round(_quality_record(p)["scores"]["slab_acc"] * 100, 1)
+                for p in PRECISIONS}
+
+    _agree(
+        "fp16 slab accuracy",
+        _stated(r"gets ([\d.]+) % of slabs right",
+                r"scores \*{0,2}([\d.]+) %\*{0,2} slab accuracy"),
+        expected["fp16"],
+    )
+    _agree("int8 slab accuracy",
+           _stated(r"\*{0,2}([\d.]+) %\*{0,2} at int8"), expected["int8"])
+    _agree("int4 slab accuracy",
+           _stated(r"\*{0,2}([\d.]+) %\*{0,2} at int4"), expected["int4"])
+
+
+def test_every_document_agrees_on_the_measured_capacity():
+    knee = _sweep("long_in", "fp16")["knee_rps"]
+    _agree(
+        "the long_in knee",
+        _stated(r"`long_in` at \*{0,2}([\d.]+) rps",
+                r"knees land at ([\d.]+) rps",
+                r"same ([\d.]+) rps"),
+        knee,
+    )
+
+
+def test_every_document_agrees_on_the_cost_figures():
+    """The cost chain, recomputed once and checked wherever it is quoted."""
+    pytest.importorskip("matplotlib")
+
+    from dataclasses import replace
+
+    from bench.config import LAPTOP, USD_TO_INR
+    from bench.cost import HOURS_PER_MONTH, ApiPricing, crossover, monthly
+    from bench.report.build import capacity_from
+
+    _consistent("the API's input price",
+                _stated(r"\$([\d.]+) and \$[\d.]+ per million"))
+    _consistent("the API's output price",
+                _stated(r"\$[\d.]+ and \$([\d.]+) per million"))
+    _consistent(
+        "the date the API price was read",
+        [(name, re.search(r"read (\d{4}-\d{2}-\d{2})", prose).group(1))
+         for name, prose in DOCUMENTS.items()
+         if re.search(r"read (\d{4}-\d{2}-\d{2})", prose)],
+    )
+
+    usd_in = _stated(r"\$([\d.]+) and \$[\d.]+ per million")[0][1]
+    usd_out = _stated(r"\$[\d.]+ and \$([\d.]+) per million")[0][1]
+    api = ApiPricing(model_id="published-in-the-docs", usd_in_per_m=usd_in,
+                     usd_out_per_m=usd_out, read_on="quoted above")
+
+    capacity = capacity_from(_sweep("long_in", "int8"), "rtx5070ti-laptop")
+    capacity = replace(capacity, gpu=LAPTOP.priced_gpu())
+    volume = crossover(capacity, api)
+    point = monthly(capacity, api, volume)
+
+    _agree("the crossover volume",
+           _stated(r"([\d,]+) `long_in` requests"),
+           round(volume), round(volume, -3))
+    # The write-up hedges once -- "about ₹7,760 a month" -- and gives the exact
+    # figure where it does the arithmetic. Both are roundings of the same
+    # number, and a stale figure is still not one of them.
+    inr_per_month = point.self_host_usd * USD_TO_INR
+    _agree("the laptop's monthly cost",
+           _stated(r"₹([\d,]+) a month"),
+           round(inr_per_month), round(inr_per_month, -1))
+    _agree("the API's cost per request",
+           _stated(r"₹([\d.]+) each"),
+           round(api.usd_per_request(capacity.mean_tokens_in,
+                                     capacity.mean_tokens_out) * USD_TO_INR, 3))
+    # Anchored to the break-even, not to the unit: the README quotes a 93 %
+    # utilisation elsewhere, from a contaminated sweep point, and a pattern
+    # that matched any percentage beside the words "GPU utilisation" would
+    # hold that unrelated number to this one's value.
+    _agree("utilisation at the break-even",
+           _stated(r"break-even sits at ([\d.]+) % GPU utilisation",
+                   r"a month\*{0,2}, at ([\d.]+) % GPU utilisation",
+                   r"busy ([\d.]+) % of the time"),
+           round(point.utilisation * 100, 1))
+    _agree("the self-hosted floor",
+           _stated(r"floor is ₹([\d.]+) a request"),
+           round(capacity.inr_per_1000_requests() / 1000, 4))
+    _agree("the self-hosted floor per 1000",
+           _stated(r"₹([\d.]+) per 1000 requests"),
+           round(capacity.inr_per_1000_requests(), 2))
+    _agree("the laptop's amortised hour",
+           _stated(r"₹([\d.]+) amortised hour"),
+           round(LAPTOP.inr_per_serving_hour(1.0), 2))
+    _agree("capacity if traffic were flat",
+           _stated(r"([\d.]+) M requests a month"),
+           round(capacity.knee_rps * 3600 * HOURS_PER_MONTH / 1e6, 2))
