@@ -71,7 +71,8 @@ jobs:
             tests/test_charts.py \
             tests/test_report_build.py \
             tests/test_report_build_duty.py \
-            tests/test_report_build_ladder.py
+            tests/test_report_build_ladder.py \
+            tests/test_published_numbers.py
 
   # The cross-repo guards only mean anything with Project 01 actually present.
   # Run without it and they skip -- and a skipped guard is indistinguishable
