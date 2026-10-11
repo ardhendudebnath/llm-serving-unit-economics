@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from bench.report.rows import ABSTAIN, across_runs, compare, to_markdown
+from bench.report.rows import (
+    ABSTAIN,
+    across_candidates,
+    across_runs,
+    compare,
+    to_markdown,
+)
 
 
 def _run(rows: list[tuple[str, str, str | None, bool]], *, name: str = "m",
@@ -98,6 +104,43 @@ def test_markdown_counts_every_bucket_and_lists_only_changed_rows():
         assert listed in table
     for omitted in ("| r1 |", "| r5 |"):
         assert omitted not in table
+
+
+def test_the_markdown_names_the_candidate_run_it_is_about():
+    """Two files in one directory once described two different runs.
+
+    results/eval/int8/ held a gate verdict judging the newest run and a row
+    comparison built from the first, and neither said so. Naming the run is
+    what makes the artefact checkable.
+    """
+    report = to_markdown(compare(BASELINE, CANDIDATE), BASELINE,
+                         dict(CANDIDATE, run_id="20260917T113409Z_x"))
+    assert "Candidate run `20260917T113409Z_x`" in report
+
+
+def test_across_candidates_reports_the_spread_not_one_run():
+    """The candidate varies too, and one run of it can tell either story.
+
+    Here the same configuration loses a row against one baseline run and not
+    against the other, and gains one in both; a single line would have to pick.
+    """
+    rows_b = [dict(row) for row in BASELINE["rows"]]
+    rows_b[1]["correct"] = False
+    baselines = [dict(BASELINE, run_id="run-a"),
+                 dict(BASELINE, run_id="run-b", rows=rows_b)]
+
+    table = across_candidates([dict(CANDIDATE, run_id="cand-1")], baselines)
+    assert "1 candidate runs × 2 baseline runs" in table
+    # lost is 1 against run-a and 0 against run-b, so the cell is a range.
+    assert "| cand-1 | 1 | 1 | 1 | 1 | 0–1 | 1 |" in table
+
+
+def test_across_candidates_gives_every_candidate_run_a_line():
+    table = across_candidates(
+        [dict(CANDIDATE, run_id="cand-1"), dict(CANDIDATE, run_id="cand-2")],
+        [dict(BASELINE, run_id="run-a")],
+    )
+    assert table.count("| cand-") == 2
 
 
 def test_across_runs_gives_each_baseline_run_its_own_line():

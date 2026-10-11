@@ -137,8 +137,9 @@ frontier reference in Project 01 averages about 54 % on the same rows.
 **int8 matches fp16.** Its five-run mean slab accuracy is exactly fp16's. The
 gate passes it ([`gate.md`](results/eval/int8/gate.md)) and shows +5.0
 points, but that compares only the newest run, which was int8's best; the
-mean shows no change. Row by row, int8 gives the same answer as fp16 on 26–28
-of 28 rows against each fp16 run, and never newly abstains
+mean shows no change. Row by row, across all 25 pairings of five int8 runs
+against five fp16 runs, int8 gives the same answer on 26–28 of 28 rows, loses
+at most one, gains at most two, and never newly abstains in any of them
 ([`rows-vs-fp16.md`](results/eval/int8/rows-vs-fp16.md)). It was built
 round-to-nearest, the weaker method, so GPTQ could only have closed a gap, and
 there is none to close.
@@ -146,11 +147,12 @@ there is none to close.
 **int4 did not forget the slabs; it stopped answering.** The gate blocks it on
 four metrics, each far outside fp16's noise floor
 ([`gate.md`](results/eval/int4/gate.md)). The row-by-row comparison
-([`rows-vs-fp16.md`](results/eval/int4/rows-vs-fp16.md)) shows how. Against
-every one of fp16's five runs, int4 says `UNANSWERABLE` on the same 11 rows
-that fp16 answered, loses 4–5 correct answers and gains none. Where both
-commit to a slab, they agree on every row but one, in one fp16 run, where both
-were wrong. All of the lost accuracy is abstention.
+([`rows-vs-fp16.md`](results/eval/int4/rows-vs-fp16.md)) shows how. In all 25
+pairings of five int4 runs against five fp16 runs, int4 says `UNANSWERABLE` on
+11 rows that fp16 answered — the same 11, in every pairing — loses 4–5 correct
+answers and gains none. Where both commit to a slab, they agree on every row
+but one, in one fp16 run, where both were wrong. All of the lost accuracy is
+abstention.
 
 That matters for what would fix it. A model that had lost the knowledge would
 need more bits. One that has lost confidence might be recovered by a prompt
@@ -407,8 +409,8 @@ would actually get in; it does not pretend to lock the branch.
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
 python -m pip install -e '.[dev,load,charts]'
-python -m pytest tests -q                 # 258 tests, no GPU
-python -m pytest tests -q -m "not e2e"    # 244 of them, in about 4 seconds
+python -m pytest tests -q                 # 261 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 247 of them, in about 4 seconds
 ```
 
 **The published numbers are under test.**

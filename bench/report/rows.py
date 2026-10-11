@@ -127,6 +127,15 @@ def to_markdown(diff: RowDiff, baseline: dict, candidate: dict) -> str:
         (f"{diff.n} rows · dataset `{(baseline.get('dataset_sha') or '')[:12]}` · "
          f"prompt `{baseline.get('prompt_version', '')}`"),
         "",
+        # The baselines are named in the table at the end; the candidate was
+        # not named anywhere. Repeat runs of one configuration disagree row
+        # for row -- that is the whole reason the gate has a measured
+        # tolerance -- so a comparison that does not say which run it is about
+        # cannot be checked, and two files in one directory can quietly
+        # describe two different runs.
+        (f"Candidate run `{candidate.get('run_id') or 'unrecorded'}`, scored "
+         "against every baseline run below."),
+        "",
         "| | rows |",
         "|---|---:|",
         *(f"| {labels[name]} | {diff.count(name)} |" for name in BUCKETS),
@@ -182,6 +191,50 @@ def across_runs(candidate: dict, baselines: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _range(values: list[int]) -> str:
+    low, high = min(values), max(values)
+    return str(low) if low == high else f"{low}–{high}"
+
+
+def across_candidates(candidates: list[dict], baselines: list[dict]) -> str:
+    """One line per candidate run, each summarised across every baseline run.
+
+    `across_runs` above exists because a baseline that varies can make a
+    candidate look a row better or worse than it is. That argument is
+    symmetric, and the code only made it on one side. These candidate runs are
+    repeats of one configuration -- the gate carries a measured tolerance
+    precisely because repeats disagree -- so publishing one of them is the same
+    mistake, reflected.
+
+    It is not hypothetical. int8's first run loses a row to fp16 and gains
+    none; its last gains a row and loses none. Same build, same server, same
+    28 rows, opposite story. Neither is the finding; the spread is.
+    """
+    lines = [
+        "## Every run of this configuration, against every baseline run",
+        "",
+        (f"{len(candidates)} candidate runs × {len(baselines)} baseline runs. "
+         "Each cell is the range across the baseline runs."),
+        "",
+        ("| candidate run | same | different | newly abstained | newly answered "
+         "| lost | gained |"),
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for candidate in candidates:
+        diffs = [compare(base, candidate) for base in baselines]
+        label = candidate.get("run_id") or candidate.get("served_model_id") or "candidate"
+        lines.append(
+            f"| {label} "
+            f"| {_range([d.count('same_answer') for d in diffs])} "
+            f"| {_range([d.count('different_answer') for d in diffs])} "
+            f"| {_range([d.count('newly_abstained') for d in diffs])} "
+            f"| {_range([d.count('newly_answered') for d in diffs])} "
+            f"| {_range([len(d.lost) for d in diffs])} "
+            f"| {_range([len(d.gained) for d in diffs])} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _mark(row: dict) -> str:
     slab = row.get("predicted_slab")
     return f"{slab if slab is not None else '—'} {'✓' if row.get('correct') else '✗'}"
@@ -193,16 +246,21 @@ def main() -> int:
     ap.add_argument("--baseline", type=Path, nargs="+", required=True,
                     help="one or more runs of the baseline; the detail table uses "
                          "the first")
-    ap.add_argument("--candidate", type=Path, required=True)
+    ap.add_argument("--candidate", type=Path, nargs="+", required=True,
+                    help="one or more runs of the candidate; the detail table "
+                         "uses the first, and every run is summarised at the end")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
 
     baselines = [json.loads(p.read_text(encoding="utf-8")) for p in args.baseline]
-    candidate = json.loads(args.candidate.read_text(encoding="utf-8"))
+    candidates = [json.loads(p.read_text(encoding="utf-8")) for p in args.candidate]
+    candidate = candidates[0]
     try:
         report = to_markdown(compare(baselines[0], candidate), baselines[0], candidate)
         if len(baselines) > 1:
             report += "\n" + across_runs(candidate, baselines)
+        if len(candidates) > 1:
+            report += "\n" + across_candidates(candidates, baselines)
     except ValueError as exc:
         print(f"\n  cannot compare: {exc}\n")
         return 2
