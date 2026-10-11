@@ -33,6 +33,14 @@ eval = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    # Only the tests need this, to read the alert rules and the k8s manifests
+    # back and check them against what the code and the docs claim. Nothing
+    # under bench/ or gate/ imports it -- the core stays dependency-free.
+    #
+    # It is declared because it was once not: tests/test_observability.py
+    # skips its whole module without yaml, so the 27 tests holding the rules
+    # and the dashboard together ran on one laptop and nowhere else.
+    "pyyaml>=6.0",
 ]
 
 [tool.setuptools.packages.find]

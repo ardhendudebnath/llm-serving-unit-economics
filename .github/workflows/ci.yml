@@ -74,6 +74,21 @@ jobs:
             tests/test_report_build_ladder.py \
             tests/test_published_numbers.py
 
+      # Same trap as the charts, and it had already sprung: the observability
+      # tests read the alert rules and the dashboard back as YAML, so without
+      # this they skip as a module and the step above them stays green. The
+      # 27 tests holding the SLO, the rates and the metric names together ran
+      # nowhere -- not here, not for anyone installing from the README.
+      - name: Install the manifest dependency
+        run: python -m pip install pyyaml
+
+      - name: Observability tests
+        run: |
+          # If the install above is ever dropped, fail here rather than
+          # letting the module skip quietly and the step pass.
+          python -c "import yaml"
+          python -m pytest -q tests/test_observability.py
+
   # The cross-repo guards only mean anything with Project 01 actually present.
   # Run without it and they skip -- and a skipped guard is indistinguishable
   # from a passing one in a CI summary, which is the failure this job exists to
