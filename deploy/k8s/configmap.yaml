@@ -19,10 +19,17 @@ data:
   MODEL_ID: "Qwen/Qwen3-4B-Instruct-2507"
   PRECISION: "fp16"
 
-  # Stable across the ladder on purpose: the load generator and Project 01's
-  # harness both address the server by this name, so all three rungs are
-  # drop-in replacements for each other and nothing downstream has to change
-  # between runs.
+  # Carries the rung, and must: this name is the only thing that travels into
+  # the measurement artefacts. It is what a sweep file records as `model` and
+  # what a harness run records as `served_model_id`, so it is what the gate
+  # prints as the candidate and the baseline. Serve int8 under the fp16 name
+  # and the two rungs' results become indistinguishable by name after the
+  # fact -- in the files, in the gate table, in the charts.
+  #
+  # So the ladder was measured as `gst-4b`, `gst-4b-int8` and `gst-4b-int4`,
+  # and this value moves with MODEL_ID and PRECISION above. Nothing downstream
+  # hardcodes it: the load generator takes it from the server's /v1/models,
+  # and quality-gate.yml reads it out of this file to set NIM_MODEL.
   SERVED_MODEL_NAME: "gst-4b"
 
   # Sized to the workload, not to the architecture. This model advertises

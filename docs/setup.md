@@ -491,17 +491,24 @@ docker run -d --name vllm --gpus all -p 8000:8000 --shm-size 2g \
   -e PRECISION=fp16 \
   -e MAX_MODEL_LEN=4096 \
   -e MAX_NUM_SEQS=16 \
-  -e GPU_MEMORY_UTILIZATION=0.90 \
+  -e GPU_MEMORY_UTILIZATION=0.85 \
   -v "$HOME/.cache/huggingface:/models" \
   llm-serving:local
 
 curl -fsS http://localhost:8000/health && curl -s http://localhost:8000/v1/models
 ```
 
-Then the measurement, which is one command:
+These are the values `deploy/k8s/configmap.yaml` deploys, and a test holds the
+two together. `GPU_MEMORY_UTILIZATION` is the one worth knowing about: 0.85,
+not vLLM's usual 0.90, because 0.90 refuses to start on this card by about
+10 MiB once the display and vLLM's own CUDA context have taken their share.
+The ConfigMap carries the error and the arithmetic.
+
+Then the measurement, which is one command — at the same 10 s SLO every
+published knee was measured against, or the result compares to nothing here:
 
 ```bash
-python -m bench.sweep --all-profiles --precision fp16 --slo 5.0
+python -m bench.sweep --all-profiles --precision fp16 --slo 10.0
 ```
 
 And the quality half, against the same server — Project 01 needs no changes

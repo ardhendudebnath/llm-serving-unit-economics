@@ -409,8 +409,8 @@ would actually get in; it does not pretend to lock the branch.
 git clone https://github.com/ardhendudebnath/llm-serving-unit-economics
 cd llm-serving-unit-economics
 python -m pip install -e '.[dev,load,charts]'
-python -m pytest tests -q                 # 261 tests, no GPU
-python -m pytest tests -q -m "not e2e"    # 247 of them, in about 4 seconds
+python -m pytest tests -q                 # 273 tests, no GPU
+python -m pytest tests -q -m "not e2e"    # 259 of them, in about 4 seconds
 ```
 
 **The published numbers are under test.**

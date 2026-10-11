@@ -82,12 +82,14 @@ jobs:
       - name: Install the manifest dependency
         run: python -m pip install pyyaml
 
-      - name: Observability tests
+      - name: Manifest and observability tests
         run: |
           # If the install above is ever dropped, fail here rather than
-          # letting the module skip quietly and the step pass.
+          # letting the modules skip quietly and the step pass.
           python -c "import yaml"
-          python -m pytest -q tests/test_observability.py
+          python -m pytest -q \
+            tests/test_observability.py \
+            tests/test_serving_config.py
 
   # The cross-repo guards only mean anything with Project 01 actually present.
   # Run without it and they skip -- and a skipped guard is indistinguishable
