@@ -1,7 +1,9 @@
 # What it actually costs to self-host Qwen3-4B for GST classification
 
-*Draft. Every number below comes from a measurement in this repository. The
-one comparison that is not yet quality-matched is marked as such.*
+*Every number below comes from a measurement committed to [this
+repository](https://github.com/ardhendudebnath/llm-serving-unit-economics),
+and a test fails if any of them drifts from the data behind it. One comparison
+is not yet quality-matched, and it is marked as such wherever it appears.*
 
 The question every team serving a model gets asked is short: what does
 inference cost us, and would self-hosting be cheaper? I wanted an answer in
@@ -56,8 +58,9 @@ traffic were perfectly flat. At full utilisation, that puts the floor at
 
 The floor is where the honesty problem starts. The card costs ₹10.63 an hour
 whether it serves 2 requests a second or none, about ₹7,760 a month. On the
-live dashboard, cost per 1000 requests ran from about $100 while traffic was
-ramping up to about $0.01–0.03 under load. A per-request cost figure with no
+live dashboard, which reports in dollars, cost per 1000 requests ran from about
+$100 (₹8,800) while traffic was ramping up to about $0.01–0.03 (₹0.9–2.6)
+under load. A per-request cost figure with no
 GPU utilisation next to it is not a cost figure. That is why the dashboard
 shows both, and why one alert fires on an idle GPU as a cost problem, not a
 reliability one.
@@ -78,7 +81,8 @@ floor measured by repeating fp16 five times.
 The row-by-row comparison is the finding. **int4 did not forget which slab
 goods belong in; it stopped committing to an answer.** It says `UNANSWERABLE`
 on 11 of the 28 rows that fp16 answered, and those abstentions account for
-all of its lost accuracy. Where it does answer, it agrees with fp16. That
+all of its lost accuracy. Where it does answer, it agrees with fp16. Every
+row is listed [in the repository](../results/eval/int4/rows-vs-fp16.md). That
 matters for the fix. A model that has lost knowledge needs more bits; one that
 has lost confidence might be recovered by a prompt that discourages
 abstaining. I have not tested that.
@@ -86,7 +90,8 @@ abstaining. I have not tested that.
 ## Would I self-host this?
 
 On price alone, yes, above about 47,000 requests a month. Against Claude
-Haiku 4.5's list price, the laptop's ₹7,762 a month (the amortised rate,
+Haiku 4.5's list price ($1 and $5 per million input and output tokens, read
+2026-06-24), the laptop's ₹7,762 a month (the amortised rate,
 around the clock) buys what Haiku would charge for 47,423 `long_in` requests
 at ₹0.164 each. At that volume the GPU is busy 0.9 % of the time. The API
 charges about 110 times the self-hosted floor per request, so even a nearly
@@ -140,4 +145,40 @@ And the cost of being wrong, which an API provider absorbs and you do not.
 
 The GPU time itself came to 4.72 hours of recorded measurement. At the
 amortised rate that is worth about ₹50, with ₹0 of cloud spend and at most ₹5
-of electricity.
+of electricity. The breakdown is in the [cost log](cost-log.md).
+
+## The answer, in one paragraph
+
+On this task and this card, self-hosting is cheaper than Claude Haiku 4.5 at
+any volume above about 47,000 requests a month. That rests on price alone.
+Serve it at int8, which costs nothing in quality and more than halves the time
+of a long reply. Don't serve int4: it declines to answer 11 of the 28
+questions. And don't
+treat the crossover as a decision until the API has been scored on the same 28
+rows, because a 4B model that gets 41.4 % of slabs right may simply not be
+good enough at any price. The [decision doc](decision.md) sets out the four
+questions in the order that settles it.
+
+## What I would do next
+
+1. **Score Haiku on Project 01's harness.** About ₹40, and it is the one
+   missing number. It turns the crossover from "cheaper" into "cheaper at the
+   same quality", or tells me there is no crossover worth having.
+2. **Try a prompt that discourages abstaining, at int4.** If int4's loss really
+   is confidence rather than knowledge, that is a one-line change to test, and
+   it would put the cheapest rung back on the table.
+3. **Measure on hardware without a power cap.** Every throughput figure here
+   is a floor set by a laptop under WSL2. A rented datacentre card would tell
+   me how much of the fp16 decode penalty was the model and how much was the
+   power limit.
+
+## Reproduce it
+
+The code, the raw sweeps, the eval runs, the Kubernetes manifests and the
+Grafana dashboard are all in the
+[repository](https://github.com/ardhendudebnath/llm-serving-unit-economics).
+The [runbook](setup.md) covers getting from a Windows laptop to a serving GPU,
+including the setup failures that look exactly like the model failing to
+load and are nothing of the kind. Everything
+except the measurement itself runs without a GPU, against a mock server that
+speaks vLLM's wire format.
