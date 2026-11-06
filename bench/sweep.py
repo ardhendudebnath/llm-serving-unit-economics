@@ -206,6 +206,14 @@ def sweep_one(
 
         row = point.as_row()
         row["gpu"] = telemetry
+        # The idle time this point cost, on the point itself. Per point rather
+        # than once per sweep because a resumed sweep can be run with different
+        # flags, and a single top-level value would then be wrong for half the
+        # file. Sweeps written before this was recorded have to have it assumed
+        # -- see bench.report.gpu_hours -- which is how the project's own
+        # GPU-hour total ended up resting on a number no file contained.
+        row["warmup_s"] = warmup_s
+        row["cooldown_s"] = cooldown_s
         state.points.append(row)
         # Checkpoint before anything else can go wrong. A preempted instance
         # loses this point, not the sweep.

@@ -66,11 +66,30 @@ not in the state the measurement claimed.
 
 That is a floor, not the total. Server bring-ups, the W8A16 builds (three
 failed GPTQ attempts and the 88-second round-to-nearest one) and debugging
-appear in no record, so they are left out rather than guessed at. The hours
-are recomputed from the committed files: each load point's measured duration
-plus its 15 s warm-up (and 60 s cooldown in the cooled sweeps), and each
-harness run's recorded start and finish. An evidence copy of a published sweep
-counts only the point it replaced.
+appear in no record, so they are left out rather than guessed at.
+
+The hours are recomputed from the committed files by
+[`bench/report/gpu_hours.py`](../bench/report/gpu_hours.py), and
+`tests/test_gpu_hours.py` fails if this table drifts from what it produces:
+
+```bash
+python -m bench.report.gpu_hours
+```
+
+Each load point counts its measured duration plus its warm-up and cooldown,
+and each harness run its recorded start to finish. An evidence copy of a
+published sweep counts only the points that differ from the published sweep,
+which are the ones it replaced.
+
+**Part of this total is assumed, and the script says so.** Every committed
+sweep predates per-point recording of warm-up and cooldown, so for all 64 load
+points those come from the stated method rather than the files: 15 s warm-up,
+plus 60 s cooldown for published points (the README's "after 60 s of idle")
+and none for contaminated ones, which were the back-to-back runs. One file is
+genuinely ambiguous: `sweep_short_fp16_cooled_lowrates.json` is counted
+uncooled, though its name says otherwise; cooled, it would add 0.07 h. Sweeps
+run from now on record `warmup_s` and `cooldown_s` on every point, so new
+totals will not need either assumption.
 
 This is the honest answer to "what did this project cost, counting the
 laptop", and it is worth publishing alongside ₹0 of cloud spend. Owning the

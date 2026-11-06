@@ -80,6 +80,25 @@ def test_no_cooldown_is_taken_when_none_is_asked_for(h):
     assert h.sleeps == []
 
 
+def test_each_point_records_the_idle_time_it_cost(h):
+    # Without this, a GPU-hour total has to assume the cooldown, because nothing
+    # in the output says whether one was taken.
+    h.latency.update({0.25: 1.0, 0.5: 1.2})
+    h.run([0.25, 0.5])
+    points = json.loads(h.checkpoint.read_text(encoding="utf-8"))["points"]
+    assert [(p["warmup_s"], p["cooldown_s"]) for p in points] == [(0.0, 60.0), (0.0, 60.0)]
+
+
+def test_a_resumed_sweep_records_each_points_own_cooldown(h):
+    # Why it is per point: the second invocation used different flags, and a
+    # single sweep-level value would misreport one of the two points.
+    h.latency.update({0.25: 1.0, 0.5: 1.2})
+    h.run([0.25])
+    h.run([0.25, 0.5], cooldown_s=0.0)
+    points = json.loads(h.checkpoint.read_text(encoding="utf-8"))["points"]
+    assert [p["cooldown_s"] for p in points] == [60.0, 0.0]
+
+
 def test_resuming_skips_rates_already_recorded(h):
     h.latency.update({0.25: 1.0, 0.5: 1.2})
     h.run([0.25, 0.5])
