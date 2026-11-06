@@ -131,12 +131,18 @@ jobs:
           # Pinned, not a branch. A gate whose baseline can move underneath it
           # is not a gate.
           #
-          # 06053d6 carries both things this project depends on: the
+          # 099e9d1 carries both things this project depends on: the
           # open-weight-vllm registry row, and the max_output_tokens cap
           # without which every request to a short-context server is rejected
           # with http_400 and the run reports 0.0 % as though the model had
           # failed. 57d3bf7 had the row but not the cap.
-          ref: 06053d6
+          #
+          # It was 06053d6 until Project 01's history was rewritten. The
+          # rewrite left that commit on no branch of the published repo, so the
+          # pin was resolving only on one local machine. 099e9d1 is the same
+          # commit after the rewrite -- its tree is byte-identical -- and it is
+          # on origin/main.
+          ref: 099e9d1
           path: harness-repo
 
       # ENGINE lets a GPU runner use whichever runtime it has. Podman needs
