@@ -143,9 +143,21 @@ def contaminated(root: Path = Path(".")) -> Component:
 
 
 def harness(root: Path = Path(".")) -> Component:
+    """Each harness run once, by run_id.
+
+    A pull request that rolls out a rung attaches a *copy* of a run already
+    committed under that rung's directory -- the gate's convention is to judge
+    the newest file in results/eval/. The copy is the same run, not more GPU
+    time, so it is counted once.
+    """
     comp = Component("harness runs")
+    seen: set[str] = set()
     for path in sorted((root / EVAL).rglob("*_shared.json")):
         run = _load(path)
+        run_id = run.get("run_id", path.stem)
+        if run_id in seen:
+            continue
+        seen.add(run_id)
         start = datetime.fromisoformat(run["started_at"])
         end = datetime.fromisoformat(run["finished_at"])
         comp.items += 1

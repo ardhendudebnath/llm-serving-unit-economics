@@ -115,6 +115,17 @@ def test_an_evidence_copy_counts_only_the_points_it_replaced(tmp_path):
     assert comp.seconds == (100 + gh.LEGACY_WARMUP_S) + (50 + gh.LEGACY_WARMUP_S)
 
 
+def test_an_attached_copy_of_a_run_is_not_counted_twice(tmp_path):
+    # A rollout PR drops a copy of an existing run into results/eval/ for the
+    # gate to judge. Counting it would add GPU time that was never spent.
+    run = {"run_id": "r1", "started_at": "2026-09-11T12:00:00+00:00",
+           "finished_at": "2026-09-11T12:01:00+00:00"}
+    _write(tmp_path / gh.EVAL / "int4" / "r1_shared.json", run)
+    _write(tmp_path / gh.EVAL / "r1_shared.json", run)
+    comp = gh.harness(tmp_path)
+    assert (comp.items, comp.seconds) == (1, 60.0)
+
+
 def test_hours_round_half_up_like_the_cost_log():
     # 1,746 s is exactly 0.485 h; Python's round() would print 0.48.
     assert gh.hours_2dp(1746) == Decimal("0.49")

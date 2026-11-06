@@ -170,9 +170,24 @@ def _recorded_names(precision: str) -> set[str]:
     for path in (ROOT / "results" / "sweeps").glob(f"sweep_*_{precision}.json"):
         names.add(json.loads(path.read_text(encoding="utf-8"))["model"])
 
-    eval_dir = ROOT / "results" / "eval" / ("" if precision == "fp16" else precision)
+    eval_root = ROOT / "results" / "eval"
+    eval_dir = eval_root / ("" if precision == "fp16" else precision)
+
+    # The root directory holds fp16's runs, and is also where the gate's
+    # convention puts a pull request's candidate run. A candidate is a copy of
+    # a run already committed under its own rung's directory, so it is
+    # recognised by run_id and skipped here rather than filed under fp16 for
+    # sitting in the root.
+    elsewhere = {
+        json.loads(p.read_text(encoding="utf-8"))["run_id"]
+        for p in eval_root.glob("*/2026*.json")
+    } if precision == "fp16" else set()
+
     for path in eval_dir.glob("2026*.json"):
-        names.add(json.loads(path.read_text(encoding="utf-8"))["served_model_id"])
+        run = json.loads(path.read_text(encoding="utf-8"))
+        if run["run_id"] in elsewhere:
+            continue
+        names.add(run["served_model_id"])
     return names
 
 
