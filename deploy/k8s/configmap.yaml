@@ -16,8 +16,8 @@ data:
   #   fp16  Qwen/Qwen3-4B-Instruct-2507                             8.04 GB
   #   int8  /models/local/Qwen3-4B-Instruct-2507-quantized.w8a16    5.25 GB  (built by quantize/)
   #   int4  RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16         3.43 GB
-  MODEL_ID: "Qwen/Qwen3-4B-Instruct-2507"
-  PRECISION: "fp16"
+  MODEL_ID: "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16"
+  PRECISION: "int4"
 
   # Carries the rung, and must: this name is the only thing that travels into
   # the measurement artefacts. It is what a sweep file records as `model` and
@@ -30,7 +30,7 @@ data:
   # and this value moves with MODEL_ID and PRECISION above. Nothing downstream
   # hardcodes it: the load generator takes it from the server's /v1/models,
   # and quality-gate.yml reads it out of this file to set NIM_MODEL.
-  SERVED_MODEL_NAME: "gst-4b"
+  SERVED_MODEL_NAME: "gst-4b-int4"
 
   # Sized to the workload, not to the architecture. This model advertises
   # 262,144 positions; reserving for that would consume the whole card in KV
